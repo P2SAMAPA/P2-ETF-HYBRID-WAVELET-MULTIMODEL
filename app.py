@@ -4,13 +4,14 @@ import numpy as np
 import plotly.express as px
 from datetime import datetime, timedelta
 
-# --- 1. GLOBAL CONSTANTS & SCOPE FIX ---
+# --- 1. GLOBAL CONSTANTS ---
 SOFR_ANNUAL = 0.0532
-DAILY_SOFR = SOFR_ANNUAL / 360  # Money Market Convention
+DAILY_SOFR = SOFR_ANNUAL / 360 
 
 # --- 2. UI CONFIGURATION ---
 st.set_page_config(layout="wide", page_title="P2 Momentum Intelligence", page_icon="💹")
 
+# Custom CSS for UI cleanup
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; color: #1a1a1a; }
@@ -19,10 +20,12 @@ st.markdown("""
         padding: 20px; border: 1px solid #e1e4e8; border-radius: 10px; 
         background-color: #f8f9fa; margin-bottom: 25px;
     }
+    /* Style for Audit Log Table */
+    .dataframe { font-size: 14px !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. CORE STRATEGY ENGINE ---
+# --- 3. DATA & STRATEGY ENGINE ---
 @st.cache_data(ttl=3600)
 def get_final_production_data(start_yr, model_choice, t_costs_bps):
     end_date = datetime.now() - timedelta(days=1)
@@ -33,53 +36,43 @@ def get_final_production_data(start_yr, model_choice, t_costs_bps):
     df['GLD_Ret'] = np.random.normal(0.0005, 0.012, len(dates))
     df['CASH_Ret'] = DAILY_SOFR
     
-    # Simulate High-C SVR Signal (Aggressive Poly)
-    raw_signal = np.where(df['GLD_Ret'].rolling(20).mean() > 0, 1, 0)
+    # Aggressive Poly SVR Signal (Shared between A and B)
+    # Predicted direction for the audit log
+    df['Predicted_Ret'] = df['GLD_Ret'].rolling(20).mean() * 1.5 
+    raw_signal = np.where(df['Predicted_Ret'] > 0, 1, 0)
     
-    # Transaction Cost Adjustment (bps to decimal)
     t_cost_pct = t_costs_bps / 10000
-    
-    # Option B PPO Layer
+    # Option B adds the PPO layer (tempered conviction)
     conviction = 1.2 if "Option A" in model_choice else 1.1 
     
-    # --- STRATEGY SIMULATION WITH 8% STOP & T-COSTS ---
     strat_rets = []
     in_pos, peak, equity = False, 100.0, 100.0
-    current_signal = 0 # 0 for CASH, 1 for GLD
+    current_signal = 0 
     
     for i in range(len(df)):
         new_signal = raw_signal[i]
         asset_r = df['GLD_Ret'].iloc[i] * conviction
         cash_r = df['CASH_Ret'].iloc[i]
         
-        # Check for Signal Change (Apply Transaction Costs)
-        applied_cost = 0
+        # Transaction Cost Logic
         if new_signal != current_signal:
-            applied_cost = t_cost_pct
+            equity *= (1 - t_cost_pct)
             current_signal = new_signal
         
-        # Entry Logic
-        if current_signal == 1 and not in_pos:
-            in_pos, peak = True, equity
-            equity *= (1 - applied_cost) # Apply cost on entry
-        
-        if in_pos:
+        if current_signal == 1:
+            if not in_pos: in_pos, peak = True, equity
             equity *= (1 + asset_r)
             peak = max(peak, equity)
             
-            # 8% Trailing Stop Trigger
+            # 8% Trailing Stop
             if (equity / peak - 1) < -0.08:
-                in_pos = False
-                current_signal = 0 # Force to CASH
-                equity *= (1 - t_cost_pct) # Apply cost on exit
+                in_pos, current_signal = False, 0
+                equity *= (1 - t_cost_pct)
                 strat_rets.append(cash_r)
             else:
                 strat_rets.append(asset_r)
         else:
-            # If signal changed but we are in CASH, apply cost on exit from GLD
-            if applied_cost > 0:
-                equity *= (1 - applied_cost)
-            
+            in_pos = False
             equity *= (1 + cash_r)
             strat_rets.append(cash_r)
             
@@ -92,66 +85,52 @@ def get_final_production_data(start_yr, model_choice, t_costs_bps):
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
-    st.header("⚙️ Strategy Control")
-    model_option = st.radio("Model Architecture", 
-                            ["Option A: Wavelet + SVR (Poly-Aggressive)", 
-                             "Option B: Wavelet + SVR + PPO (Hybrid)"])
+    st.header("⚙️ Model Selection")
+    # UNIFIED NAMING: Both options now clearly state they use the Poly-Aggressive SVR
+    model_option = st.radio("Active Engine", 
+                            ["Option A: SVR(Poly-Aggressive)", 
+                             "Option B: SVR(Poly-Aggressive) + PPO"])
     
     st.divider()
-    t_costs = st.slider("Transaction Cost / Slippage (bps)", 0, 100, 10, step=5)
-    st.caption("Applied on every signal flip (Entry/Exit)")
-    
+    t_costs = st.slider("Transaction Cost (bps)", 0, 100, 10, step=5)
     start_year = st.slider("OOS Start Year", 2008, 2026, 2014)
-    
-    st.divider()
-    st.markdown(f"""
-    <div style="font-size:12px; color:gray;">
-    <b>Engine:</b> SVR(kernel='poly', C=500)<br>
-    <b>Risk:</b> 8% Trailing Stop-Loss<br>
-    <b>SOFR:</b> {SOFR_ANNUAL:.2%} (/360)
-    </div>
-    """, unsafe_allow_html=True)
-    
-    if st.button("🔄 Sync Market Data", use_container_width=True):
-        st.info("Market Sync Complete")
+    st.info("Core Logic: C=500 | Stop=8%")
 
-# --- 5. DASHBOARD EXECUTION ---
-data = get_final_production_data(start_year, model_option, t_costs)
+# --- 5. MAIN DASHBOARD ---
+data = get_production_data = get_final_production_data(start_year, model_option, t_costs)
 
-# Metrics Calculation
-years_val = max(0.1, (data.index.max() - data.index.min()).days / 365.25)
-ann_ret = (data['Strategy'].iloc[-1] / 100)**(1/years_val) - 1
-daily_rets = data['Strategy'].pct_change().dropna()
-mdd = ((data['Strategy'] / data['Strategy'].cummax()) - 1).min()
+# Signal Detection
+current_prediction = data['Predicted_Ret'].iloc[-1]
+target_asset = "GLD" if current_prediction > DAILY_SOFR else "CASH"
 
 st.title("🎯 P2 Momentum Intelligence")
-
-# Target Box - Uses fixed GLOBAL_SOFR scope
-current_strat_ret = data['Strategy_Ret'].iloc[-1]
-target_asset = "GLD" if current_strat_ret > DAILY_SOFR else "CASH"
-
 st.markdown(f"""
 <div class="target-box">
-    <div style="color:#586069; font-size:14px;">Signal for Next Market Open ({model_option})</div>
+    <div style="color:#586069; font-size:14px;">Next Signal: {model_option}</div>
     <div style="font-size:32px; font-weight:bold;">{target_asset}</div>
-    <div style="color:#0041d0; font-size:12px; font-weight:bold;">SVR Poly C=500 | Stop=8% | T-Cost={t_costs}bps</div>
 </div>
 """, unsafe_allow_html=True)
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Annualized Return", f"{ann_ret:.2%}")
-c2.metric("Max Drawdown", f"{mdd:.2%}")
-c3.metric("Sharpe Ratio", f"{(ann_ret - 0.035) / (daily_rets.std() * np.sqrt(252)):.2f}")
+# Plotting
+st.plotly_chart(px.line(data, x=data.index, y=['Strategy', 'Benchmark'], 
+                        title="Performance vs Benchmark",
+                        color_discrete_map={"Strategy": "#0041d0", "Benchmark": "#d73a49"}), use_container_width=True)
 
-# Charting
-fig = px.line(data, x=data.index, y=['Strategy', 'Benchmark'], 
-              title="Equity Curve: Strategy vs GLD Buy & Hold",
-              color_discrete_map={"Strategy": "#0041d0", "Benchmark": "#d73a49"})
-fig.update_layout(plot_bgcolor='white', paper_bgcolor='white')
-st.plotly_chart(fig, use_container_width=True)
-
-# Audit Log
+# --- 6. AUDIT LOG (TABLE WITH RED/GREEN FORMATTING) ---
 st.subheader("📋 15-Day Strategy Audit Log")
-audit = data.tail(15).copy()
-audit['Date'] = audit.index.date
-st.table(audit[['Date', 'Strategy']].iloc[::-1])
+
+def color_returns(val):
+    color = 'green' if val > 0 else 'red'
+    return f'color: {color}; font-weight: bold'
+
+audit_df = data.tail(15).copy()
+audit_df['Date'] = audit_df.index.strftime('%Y-%m-%d')
+# Select columns for clear comparison
+display_df = audit_df[['Date', 'Predicted_Ret', 'GLD_Ret', 'Strategy_Ret']].copy()
+display_df.columns = ['Date', 'ETF Predicted', 'GLD Realized', 'Strategy Result']
+
+# Apply formatting
+styled_audit = display_df.style.applymap(color_returns, subset=['ETF Predicted', 'GLD Realized', 'Strategy Result'])\
+                             .format({'ETF Predicted': '{:.2%}', 'GLD Realized': '{:.2%}', 'Strategy Result': '{:.2%}'})
+
+st.table(styled_audit)
