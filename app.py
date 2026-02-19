@@ -231,7 +231,9 @@ sharpe = (ann_ret - LIVE_SOFR) / (data["Strategy_Ret"].std() * np.sqrt(252) + 1e
 # Hit ratio: SVR predicted direction vs actual GLD direction (last 15 OOS days)
 # SVR_Predicted is genuinely lag-safe (features shifted >= 1 day in processor.py)
 last15 = data.tail(15)
-hit_ratio = (last15["SVR_Predicted"].gt(0) == last15["GLD_Ret"].gt(0)).mean()
+# Hit ratio: Was the predicted direction correct for the chosen asset?
+last15 = data.tail(15)
+hit_ratio = (last15["SVR_Predicted"].gt(0) == last15["Realised_Return_View"].gt(0)).mean()
 # ---------------------------------------------------------------------------
 # 9. HEADER
 # ---------------------------------------------------------------------------
