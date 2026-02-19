@@ -5,20 +5,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 import joblib
 import os
-
-
-# ---------------------------------------------------------------------------
-# build_features is imported here from processor so app.py can do:
-#   from models.engine import MomentumEngine, build_features
-# This re-export keeps app.py imports clean and simple.
-# ---------------------------------------------------------------------------
-from data.processor import build_feature_matrix as build_features  # noqa: F401
-
-
 # ---------------------------------------------------------------------------
 # MOMENTUM ENGINE
 # ---------------------------------------------------------------------------
-
 class MomentumEngine:
     def __init__(self, c_param: float = 700.0, degree: int = 3):
         """
@@ -27,10 +16,9 @@ class MomentumEngine:
         trend-following. Wrapped in a sklearn Pipeline so validation
         and live data are scaled identically to training data.
         """
-        self.c_param    = c_param
-        self.degree     = degree
+        self.c_param = c_param
+        self.degree = degree
         self.is_trained = False
-
         # epsilon=0.001 is appropriate for daily return magnitudes (~0.0001-0.02).
         # Original value of 0.1 was larger than most daily returns, causing the
         # SVR to ignore most training samples and predict near-zero everywhere.
@@ -45,16 +33,13 @@ class MomentumEngine:
                 gamma='scale'
             ))
         ])
-
     def train(self, X: np.ndarray, y: np.ndarray) -> bool:
         """
         Trains the SVR pipeline on the feature matrix from build_features().
-
         Parameters
         ----------
         X : (n_samples, n_features)
         y : (n_samples,) — next-day target returns
-
         Returns True on success, False on failure.
         """
         if len(X) != len(y):
@@ -71,12 +56,10 @@ class MomentumEngine:
         except Exception as e:
             print(f"Training Error: {e}")
             return False
-
     def predict_signal(self, current_features: np.ndarray) -> float:
         """
         Predicts next-period return for a single feature row.
         Positive → long GLD. At or below threshold → hold CASH.
-
         Parameters
         ----------
         current_features : (1, n_features) or (n_features,)
@@ -86,16 +69,13 @@ class MomentumEngine:
         if current_features.ndim == 1:
             current_features = current_features.reshape(1, -1)
         return float(self.model.predict(current_features)[0])
-
     def predict_series(self, X: np.ndarray) -> np.ndarray:
         """
         Vectorised prediction over an entire feature matrix.
         Used in backtesting to score the full OOS period in one call.
-
         Parameters
         ----------
         X : (n_samples, n_features)
-
         Returns
         -------
         np.ndarray (n_samples,) of predicted returns.
@@ -103,7 +83,6 @@ class MomentumEngine:
         if not self.is_trained:
             raise RuntimeError("Model has not been trained. Call train() first.")
         return self.model.predict(X)
-
     def save(self, filepath: str = "models/svr_momentum_poly.pkl") -> bool:
         """Persists the trained pipeline to disk via joblib."""
         if not self.is_trained:
@@ -117,47 +96,40 @@ class MomentumEngine:
         except Exception as e:
             print(f"Save Error: {e}")
             return False
-
     @classmethod
     def load(cls, filepath: str = "models/svr_momentum_poly.pkl") -> "MomentumEngine":
         """Loads a saved Pipeline from disk into a MomentumEngine instance."""
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"No saved model at: {filepath}")
         instance = cls.__new__(cls)
-        instance.model     = joblib.load(filepath)
+        instance.model = joblib.load(filepath)
         instance.is_trained = True
         return instance
-
-
 # ---------------------------------------------------------------------------
 # PRODUCTION UTILITY
 # ---------------------------------------------------------------------------
-
 def update_model_checkpoint(
     raw_df: pd.DataFrame,
     target_col: str = "GLD",
-    save_path: str  = "models/svr_momentum_poly.pkl"
+    save_path: str = "models/svr_momentum_poly.pkl"
 ) -> "MomentumEngine | None":
     """
     End-to-end retraining helper:
       1. Calls build_features() (processor.py) to get denoised, lag-safe features
       2. Trains a fresh MomentumEngine
       3. Saves to disk
-
     Parameters
     ----------
-    raw_df     : Raw price + macro DataFrame from loader.py
+    raw_df : Raw price + macro DataFrame from loader.py
     target_col : ETF column to predict (e.g. "GLD")
-    save_path  : Where to persist the fitted pipeline
+    save_path : Where to persist the fitted pipeline
     """
+    from data.processor import build_feature_matrix as build_features
     X, y, _, _ = build_features(raw_df, target_col=target_col)
-
-    engine  = MomentumEngine()
+    engine = MomentumEngine()
     success = engine.train(X, y)
-
     if success:
         engine.save(save_path)
         return engine
-
     print("Model training failed — returning None.")
     return None
