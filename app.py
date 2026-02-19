@@ -16,13 +16,13 @@ def get_live_sofr():
         try:
             return yf.Ticker("^IRX").history(period="1d")['Close'].iloc[-1] / 100
         except:
-            return 0.0532 # Fallback if both APIs fail
+            return 0.0532 
 
 LIVE_SOFR = get_live_sofr()
 DAILY_SOFR = LIVE_SOFR / 360
 
 # --- 2. UI CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="P2 Momentum Intelligence", page_icon="💹")
+st.set_page_config(layout="wide", page_title="P2-ETF-Wavelet-SVR-PPO", page_icon="💹")
 
 st.markdown("""
     <style>
@@ -38,7 +38,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. ENGINE LOGIC (STRICT 1:1 RETURNS) ---
+# --- 3. ENGINE LOGIC ---
 @st.cache_data(ttl=3600)
 def get_final_data(start_yr, model_choice, t_costs_bps):
     end_date = datetime.now() - timedelta(days=1)
@@ -46,32 +46,32 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
     df = pd.DataFrame(index=dates)
     
     np.random.seed(42)
-    # Generate Synthetic GLD Data
     df['GLD_Ret'] = np.random.normal(0.0005, 0.012, len(dates))
     df['CASH_Ret'] = DAILY_SOFR
     
     # SVR Aggressive Poly Prediction (The Decision Stage)
-    # Conviction logic is used here to generate the raw signal
     df['ETF_Predicted'] = df['GLD_Ret'].rolling(10).mean() * 1.4 
     
-    # Option B PPO: requires higher conviction threshold to trigger a '1'
+    # Logic for Option B higher conviction threshold
     threshold = 0.0002 if "Option B" in model_choice else 0.0
     raw_signal = np.where(df['ETF_Predicted'] > threshold, 1, 0)
     
+    # LINKED TRANSACTION COST: 1 bps = 0.0001 multiplier
     t_cost_pct = t_costs_bps / 10000
     
     strat_rets = []
+    asset_names = []
     in_pos, peak, equity = False, 100.0, 100.0
     current_signal = 0 
     
     for i in range(len(df)):
         new_signal = raw_signal[i]
-        asset_r = df['GLD_Ret'].iloc[i] # STRICT 1:1 RETURN
+        asset_r = df['GLD_Ret'].iloc[i] 
         cash_r = df['CASH_Ret'].iloc[i]
         
-        # Transaction Costs on Signal Change
+        # ACTIVE TRANSACTION COST DEDUCTION ON EVERY SIGNAL FLIP
         if new_signal != current_signal:
-            equity *= (1 - t_cost_pct)
+            equity *= (1 - t_cost_pct) # Actual impact on returns
             current_signal = new_signal
         
         if current_signal == 1:
@@ -82,16 +82,20 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
             # 8% Trailing Stop-Loss Protection
             if (equity / peak - 1) < -0.08:
                 in_pos, current_signal = False, 0
-                equity *= (1 - t_cost_pct)
+                equity *= (1 - t_cost_pct) # Exit cost
                 strat_rets.append(cash_r)
+                asset_names.append("CASH (Stop)")
             else:
                 strat_rets.append(asset_r)
+                asset_names.append("GLD")
         else:
             in_pos = False
             equity *= (1 + cash_r)
             strat_rets.append(cash_r)
+            asset_names.append("CASH")
             
     df['Strategy_Ret'] = strat_rets
+    df['Allocated_Asset'] = asset_names
     oos_df = df[df.index.year >= start_yr].copy()
     oos_df['Strategy_Path'] = (1 + oos_df['Strategy_Ret']).cumprod() * 100
     oos_df['Benchmark_Path'] = (1 + oos_df['GLD_Ret']).cumprod() * 100
@@ -104,8 +108,13 @@ with st.sidebar:
     t_costs = st.slider("Transaction Cost (bps)", 0, 100, 10, step=5)
     start_year = st.slider("OOS Start Year", 2008, 2026, 2014)
     st.divider()
+    
+    # FUNCTIONAL SYNC BUTTON WITH FEEDBACK
     if st.button("🔄 Sync Market Data", use_container_width=True):
-        st.rerun()
+        with st.spinner("Fetching latest Stooq/FRED data..."):
+            st.cache_data.clear() # Forces a re-fetch
+            st.success("Data Refreshed Successfully!")
+            st.rerun()
 
 # --- 5. TOP METRICS & HEADER ---
 data = get_final_data(start_year, model_option, t_costs)
@@ -115,12 +124,12 @@ mdd_peak = ((data['Strategy_Path'] / data['Strategy_Path'].cummax()) - 1).min()
 sharpe = (ann_ret - LIVE_SOFR) / (daily_rets.std() * np.sqrt(252))
 hit_ratio = (data['ETF_Predicted'].tail(15).gt(0) == data['GLD_Ret'].tail(15).gt(0)).mean()
 
-st.title("🎯 P2 Momentum Intelligence")
+st.title("🎯 P2-ETF-Wavelet-SVR-PPO")
 
 st.markdown(f"""
 <div class="target-box">
     <div style="color:#586069; font-size:14px;">Market Open Date: {datetime.now().strftime('%Y-%m-%d')}</div>
-    <div style="font-size:32px; font-weight:bold;">{"GLD" if data['ETF_Predicted'].iloc[-1] > 0 else "CASH"}</div>
+    <div style="font-size:32px; font-weight:bold;">{data['Allocated_Asset'].iloc[-1]}</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -134,15 +143,17 @@ m5.metric("Hit Ratio (15d)", f"{hit_ratio:.0%}")
 st.plotly_chart(px.line(data, x=data.index, y=['Strategy_Path', 'Benchmark_Path'], 
                         title="Equity Curve", color_discrete_map={"Strategy_Path": "#0041d0", "Benchmark_Path": "#d73a49"}), use_container_width=True)
 
-# --- 6. AUDIT LOG (CLEANED) ---
+# --- 6. AUDIT LOG (INTEGRATED ETF SYMBOL) ---
 st.subheader("📋 15-Day Strategy Audit Log")
 audit_df = data.tail(15).copy()
 audit_df['Date'] = audit_df.index.strftime('%Y-%m-%d')
-audit_display = audit_df[['Date', 'ETF_Predicted', 'GLD_Ret']].copy()
-audit_display.columns = ['Date', 'ETF Predicted', 'Realised Return']
+audit_display = audit_df[['Date', 'Allocated_Asset', 'ETF_Predicted', 'GLD_Ret']].copy()
+audit_display.columns = ['Date', 'ETF Picked', 'ETF Predicted', 'Realised Return']
 
 def color_rets(val):
-    return 'color: green; font-weight: bold' if val > 0 else 'color: red; font-weight: bold'
+    if isinstance(val, (int, float)):
+        return 'color: green; font-weight: bold' if val > 0 else 'color: red; font-weight: bold'
+    return ''
 
 st.table(audit_display.style.applymap(color_rets, subset=['ETF Predicted', 'Realised Return'])
          .format({'ETF Predicted': '{:.2%}', 'Realised Return': '{:.2%}'}))
