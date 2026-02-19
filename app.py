@@ -20,10 +20,11 @@ except Exception:
     st.error("Missing Secrets! Please configure FRED_API_KEY and HF_TOKEN in Streamlit.")
     st.stop()
 
+# Initialize the FeatureLoader class for sidebar actions
 loader = FeatureLoader(fred_key=fred_key, hf_token=hf_token)
 
 # ---------------------------------------------------------------------------
-# 2. STRATEGY METHODOLOGY EXPANDER
+# 2. STRATEGY METHODOLOGY EXPANDER (UI FEATURE)
 # ---------------------------------------------------------------------------
 st.title("🦅 Multi-Asset SVR + PPO Strategy")
 
@@ -31,12 +32,12 @@ with st.expander("📖 View Strategy & Methodology Details", expanded=False):
     st.markdown("""
     ### 1. Signal Generation: Multi-Target SVR
     We utilize **Support Vector Regression (SVR)** with a Non-Linear RBF Kernel. 
-    Models are trained on denoised prices and Macro signals (VIX, DXY, Spreads).
+    Five independent models are trained on denoised prices and Macro signals (VIX, DXY, Spreads).
     
     ### 2. Decision Engines
-    * **Option A (Pure Momentum):** Allocates to the ticker with the highest positive prediction.
+    * **Option A (Pure Momentum):** A 'greedy' allocator. It picks the asset with the highest positive prediction.
     * **Option B (PPO Overlay):** Mimics a **Proximal Policy Optimization** agent. 
-    It requires the SVR signal to exceed a **15bps threshold** to filter market noise and reduce turnover.
+    It requires the SVR signal to exceed a **15bps threshold** to filter out market noise and reduce turnover.
     """)
 
 # ---------------------------------------------------------------------------
@@ -44,7 +45,7 @@ with st.expander("📖 View Strategy & Methodology Details", expanded=False):
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def run_backtest(start_yr, model_choice, t_costs_bps):
-    # Load data using the helper function we rectified
+    # Load the master dataset (Parquet -> yFinance Fallback)
     raw_df = load_raw_data()
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
     t_cost_pct = t_costs_bps / 10_000
@@ -52,10 +53,13 @@ def run_backtest(start_yr, model_choice, t_costs_bps):
     all_preds = {}
     for ticker in assets:
         try:
+            # Build feature matrix using Wavelets (within processor.py)
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker, denoise=True)
+            
             is_mask = idx.year < start_yr
             oos_mask = idx.year >= start_yr
             
+            # Train Momentum Engine
             engine = MomentumEngine(c_param=700.0, degree=3)
             engine.train(X[is_mask], y[is_mask])
             
@@ -75,7 +79,7 @@ def run_backtest(start_yr, model_choice, t_costs_bps):
         date = oos_idx[i]
         daily_preds = pred_df.iloc[i]
         
-        # Logic Selection
+        # PPO Overlay Logic Gate
         if "Option B" in model_choice:
             best_ticker = daily_preds.idxmax()
             best_val = daily_preds.max()
@@ -83,10 +87,12 @@ def run_backtest(start_yr, model_choice, t_costs_bps):
         else:
             new_asset = daily_preds.idxmax() if daily_preds.max() > 0 else "CASH"
 
+        # Apply transaction costs on switches
         if new_asset != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = new_asset
 
+        # Daily Return calculation
         if current_asset == "CASH":
             day_ret = DAILY_SOFR
         else:
@@ -111,18 +117,19 @@ def run_backtest(start_yr, model_choice, t_costs_bps):
     return res, raw_df
 
 # ---------------------------------------------------------------------------
-# 4. SIDEBAR & REFRESH LOGIC
+# 4. SIDEBAR & DATA REFRESH LOGIC (RESTORED UI FEATURES)
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.header("Admin Controls")
     
-    # 1. Data Refresh Button (Restored Logic)
+    # Incremental Data Refresh Logic
     if st.button("🔄 Data Refresh", use_container_width=True):
         with st.spinner("Syncing incremental data..."):
             status_msg = loader.sync_data()
             if "Success" in status_msg:
                 st.success(status_msg)
-                st.cache_data.clear()
+                st.cache_data.clear() # Clear backtest cache
+                st.rerun()
             elif "Already Up to Date" in status_msg:
                 st.info(status_msg)
             else:
@@ -131,20 +138,21 @@ with st.sidebar:
     st.divider()
     st.header("Settings")
     model_option = st.radio("Model Selection", ["Option A (Pure SVR)", "Option B (SVR + PPO)"])
-    start_year = st.slider("Start Year", 2015, 2025, 2020)
+    start_year = st.slider("Backtest Start Year", 2015, 2025, 2018)
     t_costs = st.number_input("T-Costs (bps)", 0, 50, 5)
 
 # ---------------------------------------------------------------------------
 # 5. EXECUTION & DISPLAY
 # ---------------------------------------------------------------------------
+# Run the heavy computation
 data, raw_full = run_backtest(start_year, model_option, t_costs)
 
-# Last Sync Display
+# Display data freshness
 if not raw_full.empty:
     last_date = raw_full.index.max().strftime('%Y-%m-%d')
     st.sidebar.caption(f"Last data point: {last_date}")
 
-# Metrics
+# Key Performance Indicators
 m1, m2, m3, m4 = st.columns(4)
 ann_ret = (data["Strategy_Path"].iloc[-1] / 100) ** (252 / len(data)) - 1
 hit_ratio = (data.tail(15)["SVR_Predicted"].gt(0) == data.tail(15)["Realised_Return"].gt(0)).mean()
@@ -154,16 +162,22 @@ m2.metric("Hit Ratio (15d)", f"{hit_ratio:.0%}")
 m3.metric("Final Equity", f"${data['Strategy_Path'].iloc[-1]:.2f}")
 m4.metric("Current Pick", data["Allocated_Asset"].iloc[-1])
 
-# Plotly Chart
+# Equity Curve & Benchmarks Plot
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=data.index, y=data["Strategy_Path"], name="Strategy", line=dict(width=3, color="#00d4ff")))
-fig.add_trace(go.Scatter(x=data.index, y=data["SPY_Benchmark"], name="SPY", line=dict(dash='dot', color='rgba(255,255,255,0.3)')))
-fig.add_trace(go.Scatter(x=data.index, y=data["AGG_Benchmark"], name="AGG", line=dict(dash='dot', color='rgba(255,165,0,0.3)')))
-fig.update_layout(template="plotly_dark", height=450, margin=dict(l=10, r=10, t=30, b=10))
+fig.add_trace(go.Scatter(x=data.index, y=data["SPY_Benchmark"], name="SPY", line=dict(dash='dot', color='rgba(255,255,255,0.4)')))
+fig.add_trace(go.Scatter(x=data.index, y=data["AGG_Benchmark"], name="AGG", line=dict(dash='dot', color='rgba(255,165,0,0.4)')))
+
+fig.update_layout(
+    template="plotly_dark", 
+    height=450, 
+    margin=dict(l=10, r=10, t=30, b=10),
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+)
 st.plotly_chart(fig, use_container_width=True)
 
-# Audit Log
+# 15-Day Audit Log (UI Feature)
 st.subheader("📋 15-Day Strategy Audit Log")
-audit = data.tail(15).copy()
-audit = audit[["Allocated_Asset", "SVR_Predicted", "Realised_Return"]]
-st.table(audit.style.format({"SVR_Predicted": "{:.2%}", "Realised_Return": "{:.2%}"}))
+audit_display = data.tail(15).copy()
+audit_display = audit_display[["Allocated_Asset", "SVR_Predicted", "Realised_Return"]]
+st.table(audit_display.style.format({"SVR_Predicted": "{:.2%}", "Realised_Return": "{:.2%}"}))
