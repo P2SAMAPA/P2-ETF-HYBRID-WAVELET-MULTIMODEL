@@ -7,6 +7,66 @@ import joblib
 import os
 
 
+# ---------------------------------------------------------------------------
+# FEATURE BUILDER
+# Defined here so app.py can do: from models.engine import MomentumEngine, build_features
+# All features are lagged by >= 1 day — zero look-ahead bias.
+# ---------------------------------------------------------------------------
+
+def build_features(df: pd.DataFrame, target_col: str = "GLD_Ret") -> tuple:
+    """
+    Constructs a lag-safe feature matrix from a returns DataFrame.
+
+    All features at row i are known at the close of day i-1, predicting
+    the return on day i. This guarantees zero look-ahead bias.
+
+    Features engineered:
+      - 1, 3, 5, 10, 21-day lagged returns of the target
+      - 5 and 21-day rolling realised volatility of the target (lagged 1 day)
+      - All other columns in df lagged by 1 day (cross-asset / macro proxies)
+
+    Parameters
+    ----------
+    df         : DataFrame of daily returns and macro levels.
+    target_col : Column the SVR should predict (next-day return).
+
+    Returns
+    -------
+    X            : np.ndarray (n_samples, n_features)
+    y            : np.ndarray (n_samples,)  next-day target returns
+    valid_index  : pd.DatetimeIndex of rows used (NaN rows dropped)
+    feature_names: list[str]
+    """
+    feat = pd.DataFrame(index=df.index)
+
+    # Lagged return features
+    for lag in [1, 3, 5, 10, 21]:
+        feat[f"ret_lag{lag}"] = df[target_col].shift(lag)
+
+    # Rolling volatility features (lagged 1 day so known before the bar opens)
+    feat["vol_5d"]  = df[target_col].rolling(5).std().shift(1)
+    feat["vol_21d"] = df[target_col].rolling(21).std().shift(1)
+
+    # Cross-asset / macro columns — all lagged 1 day
+    extra_cols = [c for c in df.columns if c != target_col]
+    for col in extra_cols:
+        feat[f"{col}_lag1"] = df[col].shift(1)
+
+    # Target: next-day return
+    feat["__target__"] = df[target_col]
+
+    feat.dropna(inplace=True)
+    feature_names = [c for c in feat.columns if c != "__target__"]
+
+    X = feat[feature_names].values
+    y = feat["__target__"].values
+    return X, y, feat.index, feature_names
+
+
+# ---------------------------------------------------------------------------
+# MOMENTUM ENGINE
+# ---------------------------------------------------------------------------
+
 class MomentumEngine:
     def __init__(self, c_param: float = 700.0, degree: int = 3):
         """
@@ -141,9 +201,7 @@ def update_model_checkpoint(
     -------
     Trained MomentumEngine, or None on failure.
     """
-    from processor import build_feature_matrix  # local import to avoid circular deps
-
-    X, y, _, _ = build_feature_matrix(raw_df, target_col=target_col)
+    X, y, _, _ = build_features(raw_df, target_col=target_col)
 
     engine = MomentumEngine()
     success = engine.train(X, y)
