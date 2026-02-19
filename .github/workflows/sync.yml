@@ -10,11 +10,14 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          fetch_depth: 0
-          lfs: true
+          fetch_depth: 0  # CRITICAL: Fetches all history to avoid shallow update error
+          lfs: true       # Ensures LFS objects are pulled
+
       - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Replace 'P2SAMAPA' and 'P2-ETF-HYBRID-WAVELET-PPO' with your exact HF details
+          # Ensure the repo is not shallow before pushing
+          git fetch --unshallow || true
+          # Replace 'P2SAMAPA' and 'P2-ETF-HYBRID-WAVELET-PPO' with your exact details
           git push --force https://P2SAMAPA:$HF_TOKEN@huggingface.co/spaces/P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO main
