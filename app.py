@@ -210,8 +210,11 @@ if output:
             return f'color: {color}; font-weight: bold;'
         
         # NEW LINE (Uses the filtered audit_data you created in step 171)
-        st.dataframe(audit_data.style.format({"Daily_Return": "{:.2%}"}).applymap(style_returns, subset=['Daily_Return']), use_container_width=True, height=560)
-        )
+       st.dataframe(
+    audit_data.style.format({"Daily_Return": "{:.2%}"}).applymap(style_returns, subset=['Daily_Return']),
+    use_container_width=True, 
+    height=560
+)
 
     with col_right:
         st.subheader("🔬 Methodology Overview")
