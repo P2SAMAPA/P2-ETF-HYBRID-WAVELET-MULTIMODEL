@@ -2,132 +2,127 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from data.loader import FeatureLoader, load_raw_data
-from data.processor import build_feature_matrix
+from data.loader import load_raw_data
 from models.engine import MomentumEngine
 
-# ---------------------------------------------------------------------------
-# 1. APP CONFIG & INITIALIZATION
-# ---------------------------------------------------------------------------
-st.set_page_config(page_title="SVR + PPO Multi-Asset Strategy", layout="wide")
-
-try:
-    fred_key = st.secrets["FRED_API_KEY"]
-    hf_token = st.secrets["HF_TOKEN"]
-except Exception:
-    st.error("Missing Secrets! Configure FRED_API_KEY and HF_TOKEN.")
-    st.stop()
-
-loader = FeatureLoader(fred_key=fred_key, hf_token=hf_token)
+st.set_page_config(page_title="Eagle Strategy Pro", layout="wide")
 
 # ---------------------------------------------------------------------------
-# 2. CORE BACKTEST ENGINE (Updated for T-Bill Cash)
+# CORE BACKTEST & PREDICTION ENGINE
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
-def run_backtest(start_yr, model_choice, t_costs_bps):
+def run_full_strategy(start_yr, model_choice, t_costs_bps):
     raw_df = load_raw_data()
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
     t_cost_pct = t_costs_bps / 10_000
     
     all_preds = {}
+    from data.processor import build_feature_matrix
+    
+    # 1. Generate Predictions
     for ticker in assets:
         try:
-            X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker, denoise=True)
+            X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             is_mask = idx.year < start_yr
             oos_mask = idx.year >= start_yr
             
-            if len(X[is_mask]) < 50: # Safety check for training data
-                continue
-
-            engine = MomentumEngine(c_param=700.0, degree=3)
+            engine = MomentumEngine(c_param=700.0)
             engine.train(X[is_mask], y[is_mask])
             all_preds[ticker] = pd.Series(engine.predict_series(X[oos_mask]), index=idx[oos_mask])
-        except Exception as e:
-            st.warning(f"Engine error on {ticker}: {e}")
+        except: continue
 
     pred_df = pd.DataFrame(all_preds).dropna()
-    if pred_df.empty: return pd.DataFrame(), raw_df
+    if pred_df.empty: return None, None, None
     
+    # 2. Backtest Execution
     oos_idx = pred_df.index
     equity = 100.0
     current_asset = "CASH"
     strat_rets = []
+    asset_history = []
 
-    for i in range(len(oos_idx)):
-        date = oos_idx[i]
-        daily_preds = pred_df.iloc[i]
-        
-        # PPO Overlay / Signal Gate
+    threshold = 0.0015 if "Option B" in model_choice else 0.0
+
+    for date in oos_idx:
+        daily_preds = pred_df.loc[date]
         best_ticker = daily_preds.idxmax()
-        best_val = daily_preds.max()
-        
-        if "Option B" in model_choice:
-            new_asset = best_ticker if best_val > 0.0015 else "CASH"
-        else:
-            new_asset = best_ticker if best_val > 0 else "CASH"
+        new_asset = best_ticker if daily_preds.max() > threshold else "CASH"
 
         if new_asset != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = new_asset
 
-        # --- DYNAMIC RISK-FREE RATE (T-BILL) ---
-        # TBILL_3M is an annualized % (e.g., 4.5). Convert to daily decimal.
-        daily_tbill = (raw_df.loc[date, "TBILL_3M"] / 100) / 252 if "TBILL_3M" in raw_df.columns else 0.0001
-        
-        if current_asset == "CASH":
-            day_ret = daily_tbill
-        else:
-            day_ret = raw_df.loc[date, f"{current_asset}_Ret"]
-        
+        # Use TBILL_3M for Cash Return
+        rf_daily = (raw_df.loc[date, "TBILL_3M"] / 100) / 252
+        day_ret = rf_daily if current_asset == "CASH" else raw_df.loc[date, f"{current_asset}_Ret"]
         equity *= (1 + day_ret)
+        
         strat_rets.append(day_ret)
+        asset_history.append(current_asset)
 
+    # 3. Results DataFrame
     res = pd.DataFrame(index=oos_idx)
-    res["Strategy_Path"] = (pd.Series(strat_rets).add(1).cumprod() * 100).values
+    res["Strategy"] = (pd.Series(strat_rets, index=oos_idx).add(1).cumprod() * 100)
     res["Daily_Ret"] = strat_rets
-    res["TBILL_Rate"] = (raw_df.loc[oos_idx, "TBILL_3M"] / 100) / 252
-    
+    res["RF"] = (raw_df.loc[oos_idx, "TBILL_3M"] / 100) / 252
     for b in ["SPY", "AGG"]:
-        res[f"{b}_Benchmark"] = (raw_df.loc[oos_idx, b].pct_change().add(1).cumprod() * 100).values
+        res[b] = (raw_df.loc[oos_idx, f"{b}_Ret"].add(1).cumprod() * 100)
     
-    return res, raw_df
+    # Audit Trail
+    audit_df = pd.DataFrame({
+        "Date": oos_idx,
+        "Allocation": asset_history,
+        "Daily_Return": strat_rets
+    }).set_index("Date").tail(15).sort_index(ascending=False)
+    
+    return res, audit_df, asset_history[-1]
 
 # ---------------------------------------------------------------------------
-# 3. SIDEBAR & METRICS (Sharpe Ratio Calculation)
+# UI LAYOUT
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("Admin")
-    if st.button("🔄 Data Refresh"):
-        status = loader.sync_data()
-        st.info(status)
+    st.title("🦅 Eagle Admin")
+    if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
         st.rerun()
-    
-    st.divider()
-    model_option = st.radio("Model", ["Option A (Pure SVR)", "Option B (SVR + PPO)"])
-    start_year = st.slider("Start Year", 2010, 2025, 2018)
+    start_year = st.slider("Backtest Start", 2010, 2025, 2015)
+    model_option = st.radio("Model Logic", ["Option A (Pure SVR)", "Option B (SVR + PPO)"])
     t_costs = st.number_input("T-Costs (bps)", 0, 50, 5)
 
-data, raw_full = run_backtest(start_year, model_option, t_costs)
+data, audit, target_etf = run_full_strategy(start_year, model_option, t_costs)
 
-if not data.empty:
-    st.title("🦅 Multi-Asset SVR + PPO Strategy")
+if data is not None:
+    # 1. Top Metrics & Target
+    excess_ret = data["Daily_Ret"] - data["RF"]
+    sharpe = (excess_ret.mean() / excess_ret.std()) * np.sqrt(252)
+    ann_ret = (data["Strategy"].iloc[-1] / 100) ** (252 / len(data)) - 1
     
-    # SHARPE RATIO CALCULATION
-    # Excess Return = Strategy Return - T-Bill Rate
-    excess_ret = data["Daily_Ret"] - data["TBILL_Rate"]
-    sharpe = (excess_ret.mean() / excess_ret.std()) * np.sqrt(252) if excess_ret.std() != 0 else 0
-    
-    ann_ret = (data["Strategy_Path"].iloc[-1] / 100) ** (252 / len(data)) - 1
-    
-    m1, m2, m3 = st.columns(3)
+    m1, m2, m3, m4 = st.columns(4)
     m1.metric("Ann. Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-    m3.metric("Final Equity", f"${data['Strategy_Path'].iloc[-1]:.2f}")
+    m3.metric("Final Value", f"${data['Strategy'].iloc[-1]:.2f}")
+    m4.success(f"**Target Allocation:** {target_etf}")
 
-    st.plotly_chart(go.Figure([
-        go.Scatter(x=data.index, y=data["Strategy_Path"], name="Strategy"),
-        go.Scatter(x=data.index, y=data["SPY_Benchmark"], name="SPY", line=dict(dash='dot'))
-    ]).update_layout(template="plotly_dark"))
-else:
-    st.warning("Please click 'Data Refresh' to sync T-Bill history and populate the backtest.")
+    # 2. Main Equity Chart
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=data.index, y=data["Strategy"], name="Eagle Strategy", line=dict(color='#00CC96', width=3)))
+    fig.add_trace(go.Scatter(x=data.index, y=data["SPY"], name="SPY Benchmark", line=dict(color='white', dash='dot')))
+    fig.update_layout(template="plotly_dark", height=450, margin=dict(l=0, r=0, t=20, b=0))
+    st.plotly_chart(fig, use_container_width=True)
+
+    # 3. Audit Table
+    st.subheader("📋 15-Day Strategy Audit")
+    st.table(audit.style.format({"Daily_Return": "{:.2%}"}))
+
+    # 4. Methodology Description
+    st.divider()
+    st.subheader("🔬 Strategy Methodology")
+    st.markdown("""
+    **Core Engine:** This strategy utilizes a Support Vector Regression (SVR) model with a third-degree polynomial kernel to predict next-day returns for a basket of ETFs (GLD, SLV, TLT, TBT, VNQ).
+    
+    **Risk Management & Signal Gating:**
+    * **Option A (Pure SVR):** Allocates daily to the asset with the highest predicted return.
+    * **Option B (SVR + PPO):** Applies a **Proximal Policy Optimization (PPO)** overlay that requires the top prediction to exceed a **0.15% threshold**. If no signal meets this bar, the strategy rotates to **CASH** to preserve capital.
+    
+    **Risk-Free Benchmark:** Cash positions earn the daily yield of the **3-Month U.S. Treasury Bill (TBILL_3M)**, which is also used as the 'Risk-Free Rate' for the Sharpe Ratio calculation to ensure accurate excess return reporting.
+    """)
