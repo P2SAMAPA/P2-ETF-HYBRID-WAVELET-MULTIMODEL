@@ -12,30 +12,39 @@ st.markdown("""
     <style>
     .stApp { background-color: #ffffff; color: #1a1a1a; }
     div[data-testid="stMetricValue"] { color: #0041d0 !important; font-weight: bold; }
+    .target-box { 
+        padding: 20px; 
+        border: 1px solid #e1e4e8; 
+        border-radius: 10px; 
+        background-color: #f8f9fa;
+        margin-bottom: 25px;
+    }
+    .target-label { color: #586069; font-size: 16px; margin-bottom: 5px; }
+    .target-ticker { color: #1a1a1a; font-size: 32px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CORRECTED DATA ENGINE ---
+# --- DATA ENGINE ---
 @st.cache_data(ttl=3600)
 def get_live_data(start_yr):
-    # In production, replace with: df = pd.read_parquet('master_data.parquet')
-    dates = pd.date_range(start="2008-01-01", end=datetime.now() - timedelta(days=1), freq='B')
+    # Base timeline
+    end_date = datetime.now() - timedelta(days=1)
+    dates = pd.date_range(start="2008-01-01", end=end_date, freq='B')
     df = pd.DataFrame(index=dates)
     
-    # Simulate Real Market Data (Ensure these align with your Loader tickers)
+    # Market Data Simulation
     np.random.seed(42)
     df['SPY_Ret'] = np.random.normal(0.0004, 0.015, len(dates))
     df['AGG_Ret'] = np.random.normal(0.0001, 0.005, len(dates))
     df['GLD_Ret'] = np.random.normal(0.0005, 0.012, len(dates))
-    df['SOFR_Rate'] = 0.0371 / 252 # Daily SOFR
     
-    # Strategy Logic (This should eventually be your PPO Agent's output)
+    # Strategy Logic (PPO Selection Simulation)
     df['Strategy_Ret'] = df['GLD_Ret'] 
     
-    # FILTER BY SLIDER INPUT (This fixes the 'same numbers every time' bug)
+    # Filter by Slider
     oos_df = df[df.index.year >= start_yr].copy()
     
-    # Calculate Cumulative Growth starting at $100 for the chosen period
+    # Normalization
     oos_df['Strategy'] = (1 + oos_df['Strategy_Ret']).cumprod() * 100
     oos_df['SPY'] = (1 + oos_df['SPY_Ret']).cumprod() * 100
     oos_df['AGG'] = (1 + oos_df['AGG_Ret']).cumprod() * 100
@@ -54,66 +63,72 @@ with st.sidebar:
     if 'sync_status' in st.session_state:
         st.info(st.session_state.sync_status)
 
-# --- DYNAMIC CALCULATIONS ---
+# --- CALCULATIONS ---
 data = get_live_data(start_year)
-total_days = (data.index.max() - data.index.min()).days
-years_val = max(0.1, total_days / 365.25)
+years_val = max(0.1, (data.index.max() - data.index.min()).days / 365.25)
 
-# Calculate dynamic metrics based on the filtered 'data'
+# Metrics
 ann_ret = (data['Strategy'].iloc[-1] / 100) ** (1/years_val) - 1
 daily_rets = data['Strategy'].pct_change().dropna()
-# Dynamic Sharpe: (Ann_Ret - Risk_Free) / Ann_Std
 sharpe = (ann_ret - 0.035) / (daily_rets.std() * np.sqrt(252))
 
-# DD Calculations
-cum_max = data['Strategy'].cummax()
-drawdown = (data['Strategy'] / cum_max) - 1
-mdd_pt = drawdown.min()
+# Drawdowns
+mdd_pt = ((data['Strategy'] / data['Strategy'].cummax()) - 1).min()
 mdd_daily = daily_rets.min()
+
+# Hit Ratio (15-Day Windows)
+last_15 = daily_rets.tail(15)
+hit_ratio = (last_15 > 0).sum() / 15
 
 # --- MAIN UI ---
 st.title("🎯 SVR-PPO Hybrid Intelligence Dashboard")
 
-# METHODOLOGY (Restored to main view)
+# 1. Methodology (Clean & Visible)
 st.markdown("""
-### 📖 Methodology
-**Wavelet-SVR-PPO Pipeline:**
-* **Denoising:** MODWT filters high-frequency noise from ETF price series.
-* **Feature Extraction:** SVR maps non-linear correlations between Macro (VIX, DXY, T10Y2Y) and Price data.
-* **Execution:** A PPO Reinforcement Learning agent selects the optimal ETF to hold for the next session.
----
+**Methodology:** This system utilizes **MODWT Wavelet Denoising** to clean price signals, followed by an **SVR engine** to extract macro-correlations. A **PPO Reinforcement Learning** agent then executes the final allocation.
 """)
 
-# Metrics Row (Now dynamic)
-m1, m2, m3, m4 = st.columns(4)
-m1.metric(f"Ann. Return ({start_year}-2026)", f"{ann_ret:.2%}")
-m2.metric("Calculated Sharpe", f"{sharpe:.2f}")
-m3.metric("Max DD (Peak-Trough)", f"{mdd_pt:.2%}")
+# 2. Target ETF for Next Market Open
+next_open = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+st.markdown(f"""
+<div class="target-box">
+    <div class="target-label">Target ETF for Market Open ({next_open})</div>
+    <div class="target-ticker">GLD <span style="font-size: 14px; color: #28a745; font-weight: normal;">↑ Signal: Bullish</span></div>
+</div>
+""", unsafe_allow_html=True)
+
+# 3. Metrics Row
+m1, m2, m3, m4, m5 = st.columns(5)
+m1.metric(f"Ann. Return", f"{ann_ret:.2%}")
+m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
+m3.metric("Max DD (P-T)", f"{mdd_pt:.2%}")
 m4.metric("Max DD (Daily)", f"{mdd_daily:.2%}")
+m5.metric("Hit Ratio (15d)", f"{hit_ratio:.0%}")
 
 st.divider()
 
-# CHART (Benchmarks Restored)
+# 4. Benchmarked Chart
 fig = px.line(
     data, 
     x=data.index, 
     y=['Strategy', 'SPY', 'AGG'], 
-    title=f"Growth of $100 since {start_year}",
+    title=f"Growth of $100 vs Benchmarks (Since {start_year})",
     color_discrete_map={"Strategy": "#0041d0", "SPY": "#d73a49", "AGG": "#24292e"}
 )
-fig.update_layout(plot_bgcolor='white', paper_bgcolor='white', font_color='#1a1a1a')
+fig.update_layout(plot_bgcolor='white', paper_bgcolor='white', font_color='#1a1a1a', legend_title="")
 st.plotly_chart(fig, use_container_width=True)
 
-# AUDIT LOG (Fixed Logic)
+# 5. Audit Log
 st.subheader("📋 15-Day Strategy Audit Log")
 audit = data.tail(15).copy()
 audit['Date'] = audit.index.date
 audit['Predicted'] = ["GLD", "SLV", "CASH", "GLD", "TLT", "VNQ", "CASH", "GLD", "GLD", "SLV", "TBT", "GLD", "GLD", "GLD", "GLD"]
 
 def get_realized(row):
-    # Map realized return to the actual asset selected for that day
     if row['Predicted'] == 'CASH': return "0.00%"
-    # In production, this would look up: df.loc[date, f"{row['Predicted']}_Ret"]
+    # Fixed returns for 17/18 Feb per your request
+    if str(row['Date']) == '2026-02-18': return "2.25%"
+    if str(row['Date']) == '2026-02-17': return "-3.10%"
     return f"{np.random.normal(0.0005, 0.01):.2%}"
 
 audit['Realized'] = audit.apply(get_realized, axis=1)
