@@ -22,7 +22,7 @@ LIVE_SOFR = get_live_sofr()
 DAILY_SOFR = LIVE_SOFR / 360
 
 # --- 2. UI CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="P2 Momentum Intelligence", page_icon="💹")
+st.set_page_config(layout="wide", page_title="P2 ETF WAVELET SVR PPO MODEL", page_icon="💹")
 
 st.markdown("""
     <style>
@@ -108,7 +108,7 @@ with st.sidebar:
     st.header("⚙️ Settings")
     model_option = st.radio("Active Engine", ["Option A: SVR(Poly-Aggressive)", "Option B: SVR(Poly-Aggressive) + PPO"])
     t_costs = st.slider("Transaction Cost (bps)", 0, 100, 10, step=5)
-    start_year = st.slider("OOS Start Year", 2014, 2026, 2014)
+    start_year = st.slider("OOS Start Year", 2008, 2026, 2008)
     st.divider()
     
     if st.button("🔄 Sync Market Data", use_container_width=True):
