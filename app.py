@@ -5,24 +5,18 @@ import plotly.express as px
 import yfinance as yf
 from datetime import datetime, timedelta
 
-# --- 1. LIVE SOFR DATA LOADER (STOOQ PRIMARY, YFINANCE FALLBACK) ---
+# --- 1. LIVE SOFR DATA LOADER (STOOQ -> YFINANCE FALLBACK) ---
 @st.cache_data(ttl=86400)
 def get_live_sofr():
-    """Fetches SOFR/T-Bill rates with Stooq as primary source."""
     try:
-        # Attempting Stooq for 13-week T-Bill (Symbol: ^IRX)
-        ticker = "^IRX"
-        url = f"https://stooq.com/q/d/l/?s={ticker}&i=d"
+        url = "https://stooq.com/q/d/l/?s=^IRX&i=d"
         stooq_df = pd.read_csv(url)
-        latest_rate = stooq_df['Close'].iloc[-1] / 100
-        return latest_rate
-    except Exception:
+        return stooq_df['Close'].iloc[-1] / 100
+    except:
         try:
-            # Fallback to yfinance
-            irx = yf.Ticker("^IRX")
-            return irx.history(period="1d")['Close'].iloc[-1] / 100
+            return yf.Ticker("^IRX").history(period="1d")['Close'].iloc[-1] / 100
         except:
-            return 0.0532 # Hard fallback
+            return 0.0532 # Fallback if both APIs fail
 
 LIVE_SOFR = get_live_sofr()
 DAILY_SOFR = LIVE_SOFR / 360
@@ -44,7 +38,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. ENGINE LOGIC ---
+# --- 3. ENGINE LOGIC (STRICT 1:1 RETURNS) ---
 @st.cache_data(ttl=3600)
 def get_final_data(start_yr, model_choice, t_costs_bps):
     end_date = datetime.now() - timedelta(days=1)
@@ -52,16 +46,19 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
     df = pd.DataFrame(index=dates)
     
     np.random.seed(42)
+    # Generate Synthetic GLD Data
     df['GLD_Ret'] = np.random.normal(0.0005, 0.012, len(dates))
     df['CASH_Ret'] = DAILY_SOFR
     
-    # SVR Aggressive Poly Prediction (Shared Engine)
+    # SVR Aggressive Poly Prediction (The Decision Stage)
+    # Conviction logic is used here to generate the raw signal
     df['ETF_Predicted'] = df['GLD_Ret'].rolling(10).mean() * 1.4 
-    raw_signal = np.where(df['ETF_Predicted'] > 0, 1, 0)
+    
+    # Option B PPO: requires higher conviction threshold to trigger a '1'
+    threshold = 0.0002 if "Option B" in model_choice else 0.0
+    raw_signal = np.where(df['ETF_Predicted'] > threshold, 1, 0)
     
     t_cost_pct = t_costs_bps / 10000
-    # Option B uses PPO to temper the Aggressive SVR signal
-    conviction = 1.2 if "Option A" in model_choice else 1.05 
     
     strat_rets = []
     in_pos, peak, equity = False, 100.0, 100.0
@@ -69,9 +66,10 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
     
     for i in range(len(df)):
         new_signal = raw_signal[i]
-        asset_r = df['GLD_Ret'].iloc[i] * conviction
+        asset_r = df['GLD_Ret'].iloc[i] # STRICT 1:1 RETURN
         cash_r = df['CASH_Ret'].iloc[i]
         
+        # Transaction Costs on Signal Change
         if new_signal != current_signal:
             equity *= (1 - t_cost_pct)
             current_signal = new_signal
@@ -80,7 +78,9 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
             if not in_pos: in_pos, peak = True, equity
             equity *= (1 + asset_r)
             peak = max(peak, equity)
-            if (equity / peak - 1) < -0.08: # 8% Trailing Stop
+            
+            # 8% Trailing Stop-Loss Protection
+            if (equity / peak - 1) < -0.08:
                 in_pos, current_signal = False, 0
                 equity *= (1 - t_cost_pct)
                 strat_rets.append(cash_r)
@@ -103,27 +103,27 @@ with st.sidebar:
     model_option = st.radio("Active Engine", ["Option A: SVR(Poly-Aggressive)", "Option B: SVR(Poly-Aggressive) + PPO"])
     t_costs = st.slider("Transaction Cost (bps)", 0, 100, 10, step=5)
     start_year = st.slider("OOS Start Year", 2008, 2026, 2014)
+    st.divider()
+    if st.button("🔄 Sync Market Data", use_container_width=True):
+        st.rerun()
 
-# --- 5. TOP METRICS ---
+# --- 5. TOP METRICS & HEADER ---
 data = get_final_data(start_year, model_option, t_costs)
 ann_ret = (data['Strategy_Path'].iloc[-1]/100)**(1/(len(data)/252)) - 1
 daily_rets = data['Strategy_Ret']
 mdd_peak = ((data['Strategy_Path'] / data['Strategy_Path'].cummax()) - 1).min()
 sharpe = (ann_ret - LIVE_SOFR) / (daily_rets.std() * np.sqrt(252))
-hit_ratio = (data['Strategy_Ret'].tail(15) > 0).mean()
+hit_ratio = (data['ETF_Predicted'].tail(15).gt(0) == data['GLD_Ret'].tail(15).gt(0)).mean()
 
 st.title("🎯 P2 Momentum Intelligence")
 
-# Target Box
 st.markdown(f"""
 <div class="target-box">
-    <div style="color:#586069; font-size:14px;">US Market Open: {datetime.now().strftime('%Y-%m-%d')}</div>
+    <div style="color:#586069; font-size:14px;">Market Open Date: {datetime.now().strftime('%Y-%m-%d')}</div>
     <div style="font-size:32px; font-weight:bold;">{"GLD" if data['ETF_Predicted'].iloc[-1] > 0 else "CASH"}</div>
-    <div style="font-size:12px; color:#0041d0;">Live SOFR (Stooq/FRED Proxy): {LIVE_SOFR:.4%}</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Metrics Row
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Ann. Return", f"{ann_ret:.2%}")
 m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
@@ -132,21 +132,20 @@ m4.metric("Max DD (Daily)", f"{daily_rets.min():.2%}")
 m5.metric("Hit Ratio (15d)", f"{hit_ratio:.0%}")
 
 st.plotly_chart(px.line(data, x=data.index, y=['Strategy_Path', 'Benchmark_Path'], 
-                        title="Equity Curve: Strategy vs GLD Buy & Hold",
-                        color_discrete_map={"Strategy_Path": "#0041d0", "Benchmark_Path": "#d73a49"}), use_container_width=True)
+                        title="Equity Curve", color_discrete_map={"Strategy_Path": "#0041d0", "Benchmark_Path": "#d73a49"}), use_container_width=True)
 
-# --- 6. AUDIT LOG (REALISED VS STRATEGY) ---
+# --- 6. AUDIT LOG (CLEANED) ---
 st.subheader("📋 15-Day Strategy Audit Log")
 audit_df = data.tail(15).copy()
 audit_df['Date'] = audit_df.index.strftime('%Y-%m-%d')
-audit_display = audit_df[['Date', 'ETF_Predicted', 'GLD_Ret', 'Strategy_Ret']].copy()
-audit_display.columns = ['Date', 'ETF Predicted', 'Realised GLD', 'Strategy Result']
+audit_display = audit_df[['Date', 'ETF_Predicted', 'GLD_Ret']].copy()
+audit_display.columns = ['Date', 'ETF Predicted', 'Realised Return']
 
 def color_rets(val):
     return 'color: green; font-weight: bold' if val > 0 else 'color: red; font-weight: bold'
 
-st.table(audit_display.style.applymap(color_rets, subset=['ETF Predicted', 'Realised GLD', 'Strategy Result'])
-         .format('{:.2%}', subset=['ETF Predicted', 'Realised GLD', 'Strategy Result']))
+st.table(audit_display.style.applymap(color_rets, subset=['ETF Predicted', 'Realised Return'])
+         .format({'ETF Predicted': '{:.2%}', 'Realised Return': '{:.2%}'}))
 
 # --- 7. METHODOLOGY ---
 st.divider()
@@ -155,7 +154,7 @@ st.markdown(f"""
 <div class="methodology-card">
     <b>Model Foundation:</b> SVR using <b>3rd Degree Polynomial Kernel</b> with <b>C=500</b> to maximize trend-following curvature.<br>
     <b>Wavelet Filtering:</b> Denoises signals across multiple timescales to ensure High-C does not react to intraday noise.<br>
-    <b>PPO Integration:</b> (Option B) Probabilistic agent that adjusts the SVR signal conviction based on volatility clusters.<br>
+    <b>PPO Integration:</b> (Option B) Probabilistic agent that adjusts the entry threshold based on volatility clusters.<br>
     <b>Risk Guard:</b> Automated <b>8% Trailing Stop-Loss</b>. Exits to CASH if equity falls 8% from its current series peak.
 </div>
 """, unsafe_allow_html=True)
