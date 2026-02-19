@@ -17,7 +17,7 @@ DATA_START   = pd.Timestamp("2008-01-01")
 ETF_TICKERS   = ["GLD", "SPY", "AGG", "TLT", "TBT", "VNQ", "SLV"]
 STOOQ_ETF_MAP = {t: f"{t}.US" for t in ETF_TICKERS}
 
-# RECTIFIED: Swapped SOFR (DTWEXBGS) for 3-Month T-Bill (DTB3)
+# RECTIFIED: Swapped SOFR for 3-Month T-Bill (DTB3) to get history back to 2008
 MACRO_CONFIG = {
     "VIX":       ("VIXCLS",        "^VIX"),
     "DXY":       ("DTWEXBGS",      "DXY"),
@@ -85,7 +85,6 @@ def _fetch_all_macros(fred: Fred, start: pd.Timestamp) -> pd.DataFrame:
     series_list = []
     for name, (fred_id, stooq_ticker) in MACRO_CONFIG.items():
         s = _fetch_macro_fred(fred, fred_id, name, start)
-        # If FRED fails or is empty, try Stooq fallback
         if s.dropna().empty and stooq_ticker:
             s = _fetch_macro_stooq(stooq_ticker, name, start)
         series_list.append(s)
@@ -118,7 +117,8 @@ class FeatureLoader:
     def sync_data(self) -> str:
         today = pd.Timestamp.now().normalize()
         master_df = self.load_master()
-        is_full_seed = master_df.empty or len(master_df) < 1000
+        # Full seed if empty or if SOFR is still present in columns
+        is_full_seed = master_df.empty or len(master_df) < 1000 or "SOFR" in master_df.columns
 
         if not is_full_seed:
             last_date = master_df.index.max()
@@ -129,7 +129,6 @@ class FeatureLoader:
             start_fetch = DATA_START
 
         try:
-            # 1. Fetch ETF Data
             etf_df = _fetch_etf_stooq(ETF_TICKERS, start_fetch)
             if etf_df.empty:
                 etf_df = _fetch_etf_yfinance(ETF_TICKERS, start_fetch)
@@ -137,21 +136,15 @@ class FeatureLoader:
             if etf_df.empty:
                 return "Sync Failed: Could not fetch ETF data"
 
-            # 2. Fetch Macro Data
             macro_df = _fetch_all_macros(self.fred, start_fetch)
-            
-            # 3. Combine and Clean
             combined = pd.concat([etf_df, macro_df], axis=1)
             combined = combined.ffill(limit=5)
             combined = combined[(combined.index.dayofweek < 5) & (combined.index < today)]
 
             final_df = combined if is_full_seed else pd.concat([master_df, combined])
             final_df = final_df[~final_df.index.duplicated(keep="last")].sort_index()
-
-            # Clean columns
             final_df.columns = [str(c).strip() for c in final_df.columns]
 
-            # 4. Upload to HuggingFace
             buf = io.BytesIO()
             final_df.to_parquet(buf)
             buf.seek(0)
@@ -167,29 +160,35 @@ class FeatureLoader:
             return f"Sync Failed: {str(e)}"
 
 # ---------------------------------------------------------------------------
-# APP WRAPPER (Rectified Indentation and Logic)
+# APP WRAPPER (Force Sync Logic Included)
 # ---------------------------------------------------------------------------
 def load_raw_data():
-    """Wrapper function to satisfy app.py import requirements"""
+    """Wrapper function that forces a sync to replace SOFR with T-Bill"""
     try:
         f_key = st.secrets["FRED_API_KEY"]
+        h_token = st.secrets["HF_TOKEN"]
     except Exception:
         f_key = "PASTE_YOUR_KEY_HERE"
+        h_token = None
 
-    loader = FeatureLoader(fred_key=f_key)
+    loader = FeatureLoader(fred_key=f_key, hf_token=h_token)
+    
+    # Check if we need to force an update (if SOFR exists or data is empty)
+    df_initial = loader.load_master()
+    if h_token and (df_initial.empty or "SOFR" in df_initial.columns):
+        print("FORCING DATA SYNC TO REPLACE SOFR...")
+        sync_result = loader.sync_data()
+        print(f"SYNC RESULT: {sync_result}")
+    
     df = loader.load_master()
-
-    if df.index.empty:
-        # Emergency fallback if Parquet is missing
+    if df.empty:
         df = _fetch_etf_yfinance(ETF_TICKERS, DATA_START)
 
-    # --- Diagnostics ---
+    # Diagnostics for Logs
     print("--- Loader Diagnostic: Signal Availability ---")
     for col in df.columns:
-        first_valid = df[col].first_valid_index()
-        print(f"Signal: {col} | Available from: {first_valid}")
+        print(f"Signal: {col} | Available from: {df[col].first_valid_index()}")
 
-    # Ensure Return columns exist for SVR Engine
     for t in ETF_TICKERS:
         if t in df.columns and f"{t}_Ret" not in df.columns:
             df[f"{t}_Ret"] = df[t].pct_change()
