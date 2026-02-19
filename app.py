@@ -56,16 +56,29 @@ def load_raw_data() -> pd.DataFrame:
     """
     Reads master_data.parquet from the public HuggingFace dataset.
     Contains raw ETF closing prices + macro levels from 2008-01-01.
+    force_download=True bypasses stale local HuggingFace cache.
     """
     try:
         path = hf_hub_download(
-            repo_id   = HF_REPO_ID,
-            filename  = HF_FILENAME,
-            repo_type = HF_REPO_TYPE,
-            # No token needed — dataset is public
+            repo_id       = HF_REPO_ID,
+            filename      = HF_FILENAME,
+            repo_type     = HF_REPO_TYPE,
+            force_download= True,  # Bypass stale local HF cache
         )
         df = pd.read_parquet(path)
         df.index = pd.DatetimeIndex(df.index)
+
+        # Sanitise column names — guard against tuple-string columns like
+        # "('Price', 'GLD')" which appear when yfinance MultiIndex leaks into parquet
+        def _clean_col(c: str) -> str:
+            c = str(c).strip()
+            if c.startswith("('") or c.startswith('("'):
+                parts = c.strip("()").replace("'", "").replace('"', "").split(",")
+                c = parts[-1].strip()
+            return c
+
+        df.columns = [_clean_col(c) for c in df.columns]
+        print(f"Master parquet loaded: {len(df)} rows, cols: {list(df.columns)}")
         return df
     except Exception as e:
         st.error(f"Could not load master data from HuggingFace: {e}")
@@ -94,7 +107,8 @@ def get_final_data(raw_df_json: str, start_yr: int,
     model_choice : "Option A" or "Option B" (PPO threshold variant)
     t_costs_bps  : Transaction cost in basis points (from slider)
     """
-    raw_df = pd.read_json(raw_df_json)
+    import io as _io
+    raw_df = pd.read_json(_io.StringIO(raw_df_json))
     raw_df.index = pd.DatetimeIndex(raw_df.index)
 
     today = pd.Timestamp.now().normalize()
