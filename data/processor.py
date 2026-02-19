@@ -62,9 +62,9 @@ def apply_dwt_denoise(series: pd.Series, wavelet: str = "sym4",
     finest_detail = coeffs[-1]
     sigma     = np.median(np.abs(finest_detail)) / 0.6745  # MAD estimator
     threshold = sigma * np.sqrt(2 * np.log(len(data)))
-    # Add a check:
-    if threshold == 0:
-    return series                    
+    if clean.std() == 0:
+        print("DWT skipped: series is constant")
+        return series  # <--- THIS LINE MUST BE INDENTED                 
 
     # Apply soft thresholding to all detail levels (coeffs[1:])
     # Leave approximation coefficients (coeffs[0]) untouched
