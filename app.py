@@ -315,22 +315,33 @@ st.plotly_chart(
     use_container_width=True
 )
 # ---------------------------------------------------------------------------
-# 11. AUDIT LOG
+# 11. AUDIT LOG — Cleaned UI with 2 Decimal Places
 # ---------------------------------------------------------------------------
 st.subheader("📋 15-Day Strategy Audit Log")
+
 audit_df = data.tail(15).copy()
+# Format the date to remove the 00:00:00 timestamp
 audit_df["Date"] = audit_df.index.strftime("%Y-%m-%d")
-audit_display = audit_df[["Date", "Allocated_Asset", "SVR_Predicted",
+
+audit_display = audit_df[["Date", "Allocated_Asset", "SVR_Predicted", 
                            "Realised_Return_View"]].copy()
+
 audit_display.columns = ["Date", "ETF Picked", "SVR Predicted Return", "Realised Return"]
+
 def color_rets(val):
     if isinstance(val, (int, float)):
-        return "color: green; font-weight: bold" if val > 0 else "color: red; font-weight: bold"
+        return "color: #28a745; font-weight: bold" if val > 0 else "color: #d73a49; font-weight: bold"
     return ""
+
+# We use .map() instead of .applymap() to fix the FutureWarning
+# We use {:.2%} to show 2 decimal places as a percentage
 st.table(
     audit_display.style
-    .applymap(color_rets, subset=["SVR Predicted Return", "Realised Return"])
-    .format({"SVR Predicted Return": "{:.4%}", "Realised Return": "{:.4%}"})
+    .map(color_rets, subset=["SVR Predicted Return", "Realised Return"])
+    .format({
+        "SVR Predicted Return": "{:.2%}", 
+        "Realised Return": "{:.2%}"
+    })
 )
 # ---------------------------------------------------------------------------
 # 12. METHODOLOGY
