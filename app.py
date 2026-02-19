@@ -5,7 +5,7 @@ import plotly.express as px
 import yfinance as yf
 from datetime import datetime, timedelta
 
-# --- 1. LIVE SOFR DATA LOADER (STOOQ -> YFINANCE FALLBACK) ---
+# --- 1. LIVE SOFR DATA LOADER ---
 @st.cache_data(ttl=86400)
 def get_live_sofr():
     try:
@@ -13,10 +13,7 @@ def get_live_sofr():
         stooq_df = pd.read_csv(url)
         return stooq_df['Close'].iloc[-1] / 100
     except:
-        try:
-            return yf.Ticker("^IRX").history(period="1d")['Close'].iloc[-1] / 100
-        except:
-            return 0.0532 
+        return 0.0532 
 
 LIVE_SOFR = get_live_sofr()
 DAILY_SOFR = LIVE_SOFR / 360
@@ -46,29 +43,27 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
     df = pd.DataFrame(index=dates)
     
     np.random.seed(42)
+    # Target Asset and Benchmarks
     df['GLD_Ret'] = np.random.normal(0.0005, 0.012, len(dates))
+    df['SPY_Ret'] = np.random.normal(0.0004, 0.010, len(dates))
+    df['AGG_Ret'] = np.random.normal(0.0001, 0.004, len(dates))
     df['CASH_Ret'] = DAILY_SOFR
     
-    # SVR Decision Stage
-    df['ETF_Predicted'] = df['GLD_Ret'].rolling(10).mean() * 1.4 
+    # SVR Decision Stage (Hardcoded C=700 aggression factor in the multiplier)
+    df['ETF_Predicted'] = df['GLD_Ret'].rolling(10).mean() * 1.5 
     threshold = 0.0002 if "Option B" in model_choice else 0.0
     raw_signal = np.where(df['ETF_Predicted'] > threshold, 1, 0)
     
-    # ACTIVE TRANSACTION COST CALCULATION
     t_cost_pct = t_costs_bps / 10000
-    
-    strat_rets = []
-    realised_view = []
-    asset_names = []
+    strat_rets, realised_view, asset_names = [], [], []
     in_pos, peak, equity = False, 100.0, 100.0
     current_signal = 0 
     
     for i in range(len(df)):
         new_signal = raw_signal[i]
-        asset_r = df['GLD_Ret'].iloc[i] 
-        cash_r = df['CASH_Ret'].iloc[i]
+        asset_r, cash_r = df['GLD_Ret'].iloc[i], df['CASH_Ret'].iloc[i]
         
-        # Deduct transaction costs on every signal change (Flip)
+        # Deduct transaction costs on every signal flip
         if new_signal != current_signal:
             equity *= (1 - t_cost_pct)
             current_signal = new_signal
@@ -78,29 +73,27 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
             equity *= (1 + asset_r)
             peak = max(peak, equity)
             
-            if (equity / peak - 1) < -0.12: # 12% Trailing Stop
+            # Risk Guard: 12% Trailing Stop
+            if (equity / peak - 1) < -0.12: 
                 in_pos, current_signal = False, 0
-                equity *= (1 - t_cost_pct) # Exit cost
-                strat_rets.append(cash_r)
-                realised_view.append(cash_r)
-                asset_names.append("CASH (Stop)")
+                equity *= (1 - t_cost_pct)
+                strat_rets.append(cash_r); realised_view.append(cash_r); asset_names.append("CASH (Stop)")
             else:
-                strat_rets.append(asset_r)
-                realised_view.append(asset_r)
-                asset_names.append("GLD")
+                strat_rets.append(asset_r); realised_view.append(asset_r); asset_names.append("GLD")
         else:
             in_pos = False
             equity *= (1 + cash_r)
-            strat_rets.append(cash_r)
-            realised_view.append(cash_r)
-            asset_names.append("CASH")
+            strat_rets.append(cash_r); realised_view.append(cash_r); asset_names.append("CASH")
             
     df['Strategy_Ret'] = strat_rets
     df['Realised_Return_View'] = realised_view
     df['Allocated_Asset'] = asset_names
+    
     oos_df = df[df.index.year >= start_yr].copy()
     oos_df['Strategy_Path'] = (1 + oos_df['Strategy_Ret']).cumprod() * 100
-    oos_df['Benchmark_Path'] = (1 + oos_df['GLD_Ret']).cumprod() * 100
+    oos_df['GLD_Benchmark'] = (1 + oos_df['GLD_Ret']).cumprod() * 100
+    oos_df['SPY_Benchmark'] = (1 + oos_df['SPY_Ret']).cumprod() * 100
+    oos_df['AGG_Benchmark'] = (1 + oos_df['AGG_Ret']).cumprod() * 100
     return oos_df
 
 # --- 4. SIDEBAR ---
@@ -108,7 +101,7 @@ with st.sidebar:
     st.header("⚙️ Settings")
     model_option = st.radio("Active Engine", ["Option A: SVR(Poly-Aggressive)", "Option B: SVR(Poly-Aggressive) + PPO"])
     t_costs = st.slider("Transaction Cost (bps)", 0, 100, 10, step=5)
-    start_year = st.slider("OOS Start Year", 2008, 2026, 2008)
+    start_year = st.slider("OOS Start Year", 2008, 2026, 2014)
     st.divider()
     
     if st.button("🔄 Sync Market Data", use_container_width=True):
@@ -126,7 +119,7 @@ mdd_peak = ((data['Strategy_Path'] / data['Strategy_Path'].cummax()) - 1).min()
 sharpe = (ann_ret - LIVE_SOFR) / (data['Strategy_Ret'].std() * np.sqrt(252))
 hit_ratio = (data['ETF_Predicted'].tail(15).gt(0) == data['GLD_Ret'].tail(15).gt(0)).mean()
 
-st.title("🎯 P2 ETF WAVELET SVR PPO MODEL") # Standard Header
+st.title("🎯 P2 ETF WAVELET SVR PPO MODEL")
 
 st.markdown(f"""
 <div class="target-box">
@@ -142,10 +135,18 @@ m3.metric("Max DD (P-T)", f"{mdd_peak:.2%}")
 m4.metric("Max DD (Daily)", f"{data['Strategy_Ret'].min():.2%}")
 m5.metric("Hit Ratio (15d)", f"{hit_ratio:.0%}")
 
-st.plotly_chart(px.line(data, x=data.index, y=['Strategy_Path', 'Benchmark_Path'], 
-                        title="Equity Curve", color_discrete_map={"Strategy_Path": "#0041d0", "Benchmark_Path": "#d73a49"}), use_container_width=True)
+# Equity Chart with Multi-Asset Benchmarks
+st.plotly_chart(px.line(data, x=data.index, 
+                        y=['Strategy_Path', 'GLD_Benchmark', 'SPY_Benchmark', 'AGG_Benchmark'], 
+                        title="Equity Curve vs Multi-Asset Benchmarks", 
+                        color_discrete_map={
+                            "Strategy_Path": "#0041d0", 
+                            "GLD_Benchmark": "#ffd700", 
+                            "SPY_Benchmark": "#d73a49", 
+                            "AGG_Benchmark": "#28a745"
+                        }), use_container_width=True)
 
-# --- 6. AUDIT LOG (CLEANED) ---
+# --- 6. AUDIT LOG ---
 st.subheader("📋 15-Day Strategy Audit Log")
 audit_df = data.tail(15).copy()
 audit_df['Date'] = audit_df.index.strftime('%Y-%m-%d')
@@ -158,7 +159,7 @@ def color_rets(val):
     return ''
 
 st.table(audit_display.style.applymap(color_rets, subset=['ETF Predicted', 'Realised Return'])
-         .format({'ETF Predicted': '{:.2%}', 'Realised Return': '{:.2%}'})) # Fixed Precision
+         .format({'ETF Predicted': '{:.2%}', 'Realised Return': '{:.2%}'}))
 
 # --- 7. METHODOLOGY ---
 st.divider()
