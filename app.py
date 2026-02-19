@@ -7,7 +7,7 @@ from data.loader import load_raw_data
 from models.engine import MomentumEngine
 
 # Institutional UI Configuration - White Background
-st.set_page_config(page_title="Eagle Alpha Terminal", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="P2 ETF WAVELET SVR PPO MODEL", layout="wide", initial_sidebar_state="collapsed")
 
 # Professional Styling for Metrics and Layout
 st.markdown("""
