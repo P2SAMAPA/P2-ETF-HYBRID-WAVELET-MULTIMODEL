@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import pandas_market_calendars as mcal
 from datetime import datetime
 from data.loader import FeatureLoader
