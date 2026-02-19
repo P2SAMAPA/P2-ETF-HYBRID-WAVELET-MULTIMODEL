@@ -209,8 +209,10 @@ if output:
             color = '#1b5e20' if val > 0 else '#b71c1c' if val < 0 else '#5f6368'
             return f'color: {color}; font-weight: bold;'
         
-        # NEW LINE (Uses the filtered audit_data you created in step 171)
-       st.dataframe(
+      
+    st.header("📋 15-Day Strategy Audit Trail")
+    # Ensure this line starts at the same indentation level as st.header
+    st.dataframe(
     audit_data.style.format({"Daily_Return": "{:.2%}"}).applymap(style_returns, subset=['Daily_Return']),
     use_container_width=True, 
     height=560
