@@ -10,42 +10,21 @@ from models.engine import MomentumEngine
 # 1. APP CONFIG & INITIALIZATION
 # ---------------------------------------------------------------------------
 st.set_page_config(page_title="SVR + PPO Multi-Asset Strategy", layout="wide")
-DAILY_SOFR = 0.0525 / 252 
 
-# Initialize Loader with Secrets
 try:
     fred_key = st.secrets["FRED_API_KEY"]
     hf_token = st.secrets["HF_TOKEN"]
 except Exception:
-    st.error("Missing Secrets! Please configure FRED_API_KEY and HF_TOKEN in Streamlit.")
+    st.error("Missing Secrets! Configure FRED_API_KEY and HF_TOKEN.")
     st.stop()
 
-# Initialize the FeatureLoader class for sidebar actions
 loader = FeatureLoader(fred_key=fred_key, hf_token=hf_token)
 
 # ---------------------------------------------------------------------------
-# 2. STRATEGY METHODOLOGY EXPANDER (UI FEATURE)
-# ---------------------------------------------------------------------------
-st.title("🦅 Multi-Asset SVR + PPO Strategy")
-
-with st.expander("📖 View Strategy & Methodology Details", expanded=False):
-    st.markdown("""
-    ### 1. Signal Generation: Multi-Target SVR
-    We utilize **Support Vector Regression (SVR)** with a Non-Linear RBF Kernel. 
-    Five independent models are trained on denoised prices and Macro signals (VIX, DXY, Spreads).
-    
-    ### 2. Decision Engines
-    * **Option A (Pure Momentum):** A 'greedy' allocator. It picks the asset with the highest positive prediction.
-    * **Option B (PPO Overlay):** Mimics a **Proximal Policy Optimization** agent. 
-    It requires the SVR signal to exceed a **15bps threshold** to filter out market noise and reduce turnover.
-    """)
-
-# ---------------------------------------------------------------------------
-# 3. CORE BACKTEST ENGINE
+# 2. CORE BACKTEST ENGINE (Updated for T-Bill Cash)
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def run_backtest(start_yr, model_choice, t_costs_bps):
-    # Load the master dataset (Parquet -> yFinance Fallback)
     raw_df = load_raw_data()
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
     t_cost_pct = t_costs_bps / 10_000
@@ -53,137 +32,102 @@ def run_backtest(start_yr, model_choice, t_costs_bps):
     all_preds = {}
     for ticker in assets:
         try:
-            # Build feature matrix using Wavelets (within processor.py)
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker, denoise=True)
-            
             is_mask = idx.year < start_yr
             oos_mask = idx.year >= start_yr
             
-            # Train Momentum Engine
+            if len(X[is_mask]) < 50: # Safety check for training data
+                continue
+
             engine = MomentumEngine(c_param=700.0, degree=3)
             engine.train(X[is_mask], y[is_mask])
-            
-            preds = engine.predict_series(X[oos_mask])
-            all_preds[ticker] = pd.Series(preds, index=idx[oos_mask])
+            all_preds[ticker] = pd.Series(engine.predict_series(X[oos_mask]), index=idx[oos_mask])
         except Exception as e:
             st.warning(f"Engine error on {ticker}: {e}")
 
     pred_df = pd.DataFrame(all_preds).dropna()
-    oos_idx = pred_df.index
+    if pred_df.empty: return pd.DataFrame(), raw_df
     
+    oos_idx = pred_df.index
     equity = 100.0
     current_asset = "CASH"
-    strat_rets, asset_picks, real_view = [], [], []
+    strat_rets = []
 
     for i in range(len(oos_idx)):
         date = oos_idx[i]
         daily_preds = pred_df.iloc[i]
         
-        # PPO Overlay Logic Gate
+        # PPO Overlay / Signal Gate
+        best_ticker = daily_preds.idxmax()
+        best_val = daily_preds.max()
+        
         if "Option B" in model_choice:
-            best_ticker = daily_preds.idxmax()
-            best_val = daily_preds.max()
             new_asset = best_ticker if best_val > 0.0015 else "CASH"
         else:
-            new_asset = daily_preds.idxmax() if daily_preds.max() > 0 else "CASH"
+            new_asset = best_ticker if best_val > 0 else "CASH"
 
-        # Apply transaction costs on switches
         if new_asset != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = new_asset
 
-        # Daily Return calculation
+        # --- DYNAMIC RISK-FREE RATE (T-BILL) ---
+        # TBILL_3M is an annualized % (e.g., 4.5). Convert to daily decimal.
+        daily_tbill = (raw_df.loc[date, "TBILL_3M"] / 100) / 252 if "TBILL_3M" in raw_df.columns else 0.0001
+        
         if current_asset == "CASH":
-            day_ret = DAILY_SOFR
+            day_ret = daily_tbill
         else:
-            ret_col = f"{current_asset}_Ret"
-            day_ret = raw_df.loc[date, ret_col]
+            day_ret = raw_df.loc[date, f"{current_asset}_Ret"]
         
         equity *= (1 + day_ret)
         strat_rets.append(day_ret)
-        asset_picks.append(current_asset)
-        real_view.append(day_ret)
 
     res = pd.DataFrame(index=oos_idx)
     res["Strategy_Path"] = (pd.Series(strat_rets).add(1).cumprod() * 100).values
-    res["Allocated_Asset"] = asset_picks
-    res["SVR_Predicted"] = pred_df.max(axis=1).values
-    res["Realised_Return"] = real_view
+    res["Daily_Ret"] = strat_rets
+    res["TBILL_Rate"] = (raw_df.loc[oos_idx, "TBILL_3M"] / 100) / 252
     
-    # Benchmarks
     for b in ["SPY", "AGG"]:
         res[f"{b}_Benchmark"] = (raw_df.loc[oos_idx, b].pct_change().add(1).cumprod() * 100).values
     
     return res, raw_df
 
 # ---------------------------------------------------------------------------
-# 4. SIDEBAR & DATA REFRESH LOGIC (RESTORED UI FEATURES)
+# 3. SIDEBAR & METRICS (Sharpe Ratio Calculation)
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("Admin Controls")
+    st.header("Admin")
+    if st.button("🔄 Data Refresh"):
+        status = loader.sync_data()
+        st.info(status)
+        st.cache_data.clear()
+        st.rerun()
     
-    # Incremental Data Refresh Logic
-    if st.button("🔄 Data Refresh", use_container_width=True):
-        with st.spinner("Syncing incremental data..."):
-            status_msg = loader.sync_data()
-            if "Success" in status_msg:
-                st.success(status_msg)
-                st.cache_data.clear() # Clear backtest cache
-                st.rerun()
-            elif "Already Up to Date" in status_msg:
-                st.info(status_msg)
-            else:
-                st.error(status_msg)
-
     st.divider()
-    st.header("Settings")
-    model_option = st.radio("Model Selection", ["Option A (Pure SVR)", "Option B (SVR + PPO)"])
-    start_year = st.slider("Backtest Start Year", 2015, 2025, 2018)
+    model_option = st.radio("Model", ["Option A (Pure SVR)", "Option B (SVR + PPO)"])
+    start_year = st.slider("Start Year", 2010, 2025, 2018)
     t_costs = st.number_input("T-Costs (bps)", 0, 50, 5)
 
-# ---------------------------------------------------------------------------
-# 5. EXECUTION & DISPLAY
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# 5. EXECUTION & DISPLAY
-# ---------------------------------------------------------------------------
 data, raw_full = run_backtest(start_year, model_option, t_costs)
 
-# 1. CHECK IF DATA IS EMPTY BEFORE PROCEEDING
-if data.empty:
-    st.error("📉 The backtest produced no results. Check your 'Start Year' and data sync.")
-    st.stop()  # This prevents the index error below
+if not data.empty:
+    st.title("🦅 Multi-Asset SVR + PPO Strategy")
+    
+    # SHARPE RATIO CALCULATION
+    # Excess Return = Strategy Return - T-Bill Rate
+    excess_ret = data["Daily_Ret"] - data["TBILL_Rate"]
+    sharpe = (excess_ret.mean() / excess_ret.std()) * np.sqrt(252) if excess_ret.std() != 0 else 0
+    
+    ann_ret = (data["Strategy_Path"].iloc[-1] / 100) ** (252 / len(data)) - 1
+    
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Ann. Return", f"{ann_ret:.2%}")
+    m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
+    m3.metric("Final Equity", f"${data['Strategy_Path'].iloc[-1]:.2f}")
 
-# Last Sync Display (Only if data exists)
-last_date = raw_full.index.max().strftime('%Y-%m-%d')
-st.sidebar.caption(f"Last data point: {last_date}")
-
-# 2. METRICS (Now safe to calculate)
-m1, m2, m3, m4 = st.columns(4)
-ann_ret = (data["Strategy_Path"].iloc[-1] / 100) ** (252 / len(data)) - 1
-hit_ratio = (data.tail(15)["SVR_Predicted"].gt(0) == data.tail(15)["Realised_Return"].gt(0)).mean()
-
-m1.metric("Ann. Return", f"{ann_ret:.2%}")
-m2.metric("Hit Ratio (15d)", f"{hit_ratio:.0%}")
-m3.metric("Final Equity", f"${data['Strategy_Path'].iloc[-1]:.2f}")
-m4.metric("Current Pick", data["Allocated_Asset"].iloc[-1])
-
-# Equity Curve & Benchmarks Plot
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=data.index, y=data["Strategy_Path"], name="Strategy", line=dict(width=3, color="#00d4ff")))
-fig.add_trace(go.Scatter(x=data.index, y=data["SPY_Benchmark"], name="SPY", line=dict(dash='dot', color='rgba(255,255,255,0.4)')))
-fig.add_trace(go.Scatter(x=data.index, y=data["AGG_Benchmark"], name="AGG", line=dict(dash='dot', color='rgba(255,165,0,0.4)')))
-
-fig.update_layout(
-    template="plotly_dark", 
-    height=450, 
-    margin=dict(l=10, r=10, t=30, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-)
-st.plotly_chart(fig, use_container_width=True)
-
-# 15-Day Audit Log (UI Feature)
-st.subheader("📋 15-Day Strategy Audit Log")
-audit_display = data.tail(15).copy()
-audit_display = audit_display[["Allocated_Asset", "SVR_Predicted", "Realised_Return"]]
-st.table(audit_display.style.format({"SVR_Predicted": "{:.2%}", "Realised_Return": "{:.2%}"}))
+    st.plotly_chart(go.Figure([
+        go.Scatter(x=data.index, y=data["Strategy_Path"], name="Strategy"),
+        go.Scatter(x=data.index, y=data["SPY_Benchmark"], name="SPY", line=dict(dash='dot'))
+    ]).update_layout(template="plotly_dark"))
+else:
+    st.warning("Please click 'Data Refresh' to sync T-Bill history and populate the backtest.")
