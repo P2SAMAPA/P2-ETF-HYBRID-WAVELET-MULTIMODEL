@@ -78,7 +78,7 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
             equity *= (1 + asset_r)
             peak = max(peak, equity)
             
-            if (equity / peak - 1) < -0.08: # 8% Trailing Stop
+            if (equity / peak - 1) < -0.10: # 10% Trailing Stop
                 in_pos, current_signal = False, 0
                 equity *= (1 - t_cost_pct) # Exit cost
                 strat_rets.append(cash_r)
@@ -168,6 +168,6 @@ st.markdown(f"""
     <b>Model Foundation:</b> SVR using <b>3rd Degree Polynomial Kernel</b> with <b>C=500</b> to maximize trend-following curvature.<br>
     <b>Wavelet Filtering:</b> Denoises signals across multiple timescales to ensure High-C does not react to intraday noise.<br>
     <b>PPO Integration:</b> (Option B) Probabilistic agent that adjusts the entry threshold based on volatility clusters.<br>
-    <b>Risk Guard:</b> Automated <b>8% Trailing Stop-Loss</b>. Exits to CASH if equity falls 8% from its current series peak.
+    <b>Risk Guard:</b> Automated <b>10% Trailing Stop-Loss</b>. Exits to CASH if equity falls 10% from its current series peak.
 </div>
 """, unsafe_allow_html=True)
