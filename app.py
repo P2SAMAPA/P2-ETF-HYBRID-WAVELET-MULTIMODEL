@@ -157,13 +157,14 @@ if output:
     ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
     sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
     max_dd = data["Drawdown"].min()
-    daily_dd = data["Drawdown"].iloc[-1]
+   # Calculates the single worst 24-hour drop in the history of the backtest
+    max_daily_loss = data["Strategy_Ret"].min()
     hit_ratio = sum(1 for r in output["audit"]["Daily_Return"] if r > 0) / 15
 
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
     m3.metric("Max Drawdown (P-T)", f"{max_dd:.2%}")
-    m4.metric("Current Drawdown", f"{daily_dd:.2%}")
+    m4.metric("Max DD (Daily)", f"{max_daily_loss:.2%}")
     m5.metric("Hit Ratio (15D)", f"{hit_ratio:.0%}")
 
     # ROW 3: EQUITY CHART
