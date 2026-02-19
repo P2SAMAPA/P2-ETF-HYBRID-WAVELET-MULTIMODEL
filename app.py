@@ -114,8 +114,14 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
 
     # Date awareness for target signal
     last_dt = oos_idx[-1]
-    next_mkt = last_dt + timedelta(days=1)
-    while next_mkt.weekday() >= 5: next_mkt += timedelta(days=1)
+    # Force the date to look forward from the actual current day
+    today = datetime.now()
+    # If past market close (4 PM), look to tomorrow, otherwise look at today
+    next_mkt = today + timedelta(days=1) if today.hour >= 16 else today
+    
+    # Skip weekends
+    while next_mkt.weekday() >= 5:
+        next_mkt += timedelta(days=1)
 
     return {
         "df": res,
