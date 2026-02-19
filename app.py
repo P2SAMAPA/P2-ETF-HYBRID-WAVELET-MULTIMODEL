@@ -6,15 +6,23 @@ from datetime import datetime, timedelta
 from data.loader import load_raw_data
 from models.engine import MomentumEngine
 
-# Institutional UI Configuration
+# Institutional UI Configuration - White Background
 st.set_page_config(page_title="Eagle Alpha Terminal", layout="wide", initial_sidebar_state="collapsed")
 
-# Custom CSS for Professional Styling
+# Professional Styling for Metrics and Layout
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; }
-    .stMetric { background-color: #161b22; padding: 15px; border-radius: 10px; border: 1px solid #30363d; }
-    [data-testid="stMetricValue"] { font-size: 28px !important; }
+    .main { background-color: #ffffff; }
+    div[data-testid="stMetric"] {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #dee2e6;
+    }
+    [data-testid="stMetricValue"] { font-size: 32px !important; color: #1a73e8 !important; }
+    [data-testid="stMetricLabel"] { color: #5f6368 !important; font-weight: 600 !important; text-transform: uppercase; font-size: 12px; }
+    h1, h2, h3 { color: #202124 !important; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    .stMarkdown p { color: #3c4043 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -57,6 +65,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
             equity *= (1 - t_cost_pct)
             current_asset = new_asset
         
+        # Cash Return from 3-Month T-Bill
         rf_daily = (raw_df.loc[date, "TBILL_3M"] / 100) / 252
         day_ret = rf_daily if current_asset == "CASH" else raw_df.loc[date, f"{current_asset}_Ret"]
         equity *= (1 + day_ret)
@@ -71,11 +80,10 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     res["Drawdown"] = (res["Equity"] - res["Peak"]) / res["Peak"]
     res["RF"] = (raw_df.loc[oos_idx, "TBILL_3M"] / 100) / 252
     
-    # Accurate Benchmark Logic
     for b in ["SPY", "AGG"]:
         res[b] = (raw_df.loc[oos_idx, f"{b}_Ret"].add(1).cumprod() * 100)
 
-    # Next Market Date Logic
+    # Date awareness for target signal
     last_dt = oos_idx[-1]
     next_mkt = last_dt + timedelta(days=1)
     while next_mkt.weekday() >= 5: next_mkt += timedelta(days=1)
@@ -90,11 +98,11 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
 # ---------------------------------------------------------------------------
 # TERMINAL UI RENDERING
 # ---------------------------------------------------------------------------
-st.markdown("<h1 style='text-align: center; color: #58a6ff; margin-bottom: 0;'>🦅 EAGLE ALPHA TERMINAL</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #8b949e;'>Institutional Macro-Signal & SVR Momentum Engine</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #1a73e8; margin-bottom: 0;'>🦅 EAGLE ALPHA TERMINAL</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #5f6368; font-weight: 500;'>Institutional Strategy Performance & Signal Console</p>", unsafe_allow_html=True)
 
 with st.sidebar:
-    st.header("Control Panel")
+    st.header("Terminal Config")
     if st.button("🔄 Force Data Refresh"): st.cache_data.clear(); st.rerun()
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Model Logic", ["Option A (Pure SVR)", "Option B (SVR + PPO)"])
@@ -105,15 +113,15 @@ output = run_professional_backtest(s_yr, opt, costs)
 if output:
     data = output["df"]
     
-    # ROW 1: MASTER TARGET SIGNAL
+    # ROW 1: PRIMARY TARGET SIGNAL
     st.markdown(f"""
-        <div style="background-color: #161b22; padding: 30px; border-radius: 12px; border: 2px solid #238636; text-align: center; margin-bottom: 25px;">
-            <p style="margin:0; color: #8b949e; font-size: 16px; text-transform: uppercase; letter-spacing: 2px;">Target Allocation for {output['next_date']}</p>
-            <h1 style="margin:10px 0; font-size: 82px; color: #2ea043; font-family: monospace;">{output['target']}</h1>
+        <div style="background-color: #f1f8e9; padding: 35px; border-radius: 12px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
+            <p style="margin:0; color: #2e7d32; font-size: 16px; text-transform: uppercase; letter-spacing: 2px; font-weight: 700;">Target Allocation for Market Open: {output['next_date']}</p>
+            <h1 style="margin:10px 0; font-size: 90px; color: #1b5e20; font-family: 'Courier New', monospace; font-weight: 900;">{output['target']}</h1>
         </div>
     """, unsafe_allow_html=True)
 
-    # ROW 2: PRIMARY ANALYTICS
+    # ROW 2: PERFORMANCE & RISK METRICS
     m1, m2, m3, m4, m5 = st.columns(5)
     
     excess = data["Strategy_Ret"] - data["RF"]
@@ -130,11 +138,17 @@ if output:
     m5.metric("Hit Ratio (15D)", f"{hit_ratio:.0%}")
 
     # ROW 3: EQUITY CHART
-    st.markdown("### Performance Relative to SPY Benchmark")
+    st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance: Strategy vs. SPY Benchmark</h3>", unsafe_allow_html=True)
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data.index, y=data["Equity"], name="Eagle Strategy", line=dict(color='#58a6ff', width=3)))
-    fig.add_trace(go.Scatter(x=data.index, y=data["SPY"], name="SPY Benchmark", line=dict(color='#8b949e', dash='dot')))
-    fig.update_layout(template="plotly_dark", height=450, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified")
+    fig.add_trace(go.Scatter(x=data.index, y=data["Equity"], name="Eagle Strategy", line=dict(color='#1a73e8', width=3)))
+    fig.add_trace(go.Scatter(x=data.index, y=data["SPY"], name="SPY (Re-indexed)", line=dict(color='#9aa0a6', dash='dot')))
+    fig.update_layout(
+        template="plotly_white", 
+        height=480, 
+        margin=dict(l=0,r=0,t=0,b=0), 
+        hovermode="x unified",
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+    )
     st.plotly_chart(fig, use_container_width=True)
 
     # ROW 4: AUDIT TABLE & METHODOLOGY
@@ -142,27 +156,27 @@ if output:
     
     with col_left:
         st.subheader("📋 15-Day Strategy Audit Trail")
-        # Color-coded realized returns
-        def color_returns(val):
-            color = '#2ea043' if val > 0 else '#f85149' if val < 0 else '#8b949e'
+        def style_returns(val):
+            color = '#1b5e20' if val > 0 else '#b71c1c' if val < 0 else '#5f6368'
             return f'color: {color}; font-weight: bold;'
         
         st.dataframe(
-            output["audit"].style.format({"Daily_Return": "{:.2%}"}).applymap(color_returns, subset=['Daily_Return']),
+            output["audit"].style.format({"Daily_Return": "{:.2%}"}).applymap(style_returns, subset=['Daily_Return']),
             use_container_width=True, height=560
         )
 
     with col_right:
-        st.subheader("🔬 Methodology Core")
+        st.subheader("🔬 Methodology Overview")
         st.markdown(f"""
-        **System Architecture:** Non-linear Support Vector Regression (SVR) trained on multi-decade macro-ETF feature sets.
+        **Algorithm:** Non-linear SVR (Support Vector Regression) utilizing a polynomial kernel to capture non-linear macro relationships.
         
-        **Risk Management:**
-        - **{opt}:** Uses policy-driven thresholds to filter conviction.
-        - **Cash Hurdle:** Cash positions earn daily 3-Month T-Bill yields (TBILL_3M).
-        - **Benchmarking:** Excess returns are calculated net of risk-free rates.
+        **Risk Controls:**
+        - **Model Selection:** {opt} manages churn based on prediction conviction.
+        - **Liquidity Buffer:** 'CASH' positions yield the daily **3-Month T-Bill** rate.
+        - **Hurdle Rate:** Sharpe Ratio is calculated net of the Risk-Free Rate (RF).
         
-        **Latest Context:**
-        - **Audit Start:** {output['audit'].index.min().date()}
-        - **Backtest History:** {len(data)} trading days
+        **System Integrity:**
+        - **Feature Space:** Aggregated macro signals and ETF returns.
+        - **Lookback History:** {len(data)} trading sessions analyzed in this window.
+        - **Next Signal Window:** Active for market open on {output['next_date']}.
         """)
