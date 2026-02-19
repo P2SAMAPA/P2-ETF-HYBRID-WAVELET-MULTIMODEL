@@ -97,19 +97,19 @@ def load_raw_data() -> pd.DataFrame:
 #        change fully invalidates the cache
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
-def get_final_data(raw_df_json: str, start_yr: int,
+def get_final_data(data_hash: str, start_yr: int,
                    model_choice: str, t_costs_bps: int) -> pd.DataFrame:
     """
     Parameters
     ----------
-    raw_df_json  : JSON-serialised raw DataFrame (used as cache key)
+    data_hash    : Hash of raw DataFrame (shape + last date) used as cache key only.
+                   Avoids JSON round-trip which corrupts DatetimeIndex.
     start_yr     : OOS start year — SVR trained on everything before this
     model_choice : "Option A" or "Option B" (PPO threshold variant)
     t_costs_bps  : Transaction cost in basis points (from slider)
     """
-    import io as _io
-    raw_df = pd.read_json(_io.StringIO(raw_df_json))
-    raw_df.index = pd.DatetimeIndex(raw_df.index)
+    # Re-load directly from HuggingFace — avoids JSON round-trip corrupting DatetimeIndex
+    raw_df = load_raw_data()
 
     today = pd.Timestamp.now().normalize()
 
@@ -304,10 +304,11 @@ if raw_df.empty:
     st.error("No data loaded. Please click 'Sync Market Data' in the sidebar to seed the dataset.")
     st.stop()
 
-# Serialise to JSON for use as a stable cache key
-raw_df_json = raw_df.to_json()
+# Build a lightweight cache key from shape + last date — no JSON round-trip
+# (JSON serialisation corrupts DatetimeIndex, causing IS/OOS splits to fail)
+data_hash = f"{len(raw_df)}_{str(raw_df.index.max().date())}"
 
-data = get_final_data(raw_df_json, start_year, model_option, t_costs)
+data = get_final_data(data_hash, start_year, model_option, t_costs)
 
 if data.empty:
     st.error("Backtest returned no data. Try adjusting the OOS Start Year.")
