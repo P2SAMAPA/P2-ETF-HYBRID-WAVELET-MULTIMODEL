@@ -56,11 +56,40 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     strat_rets = []
     asset_history = []
     threshold = 0.0015 if "Option B" in model_choice else 0.0
+    
+    # --- NEW: Peak Tracking Variables ---
+    peak_price_since_entry = 0.0
+    stop_triggered = False
 
     for date in oos_idx:
         daily_preds = pred_df.loc[date]
         best_ticker = daily_preds.idxmax()
-        new_asset = best_ticker if daily_preds.max() > threshold else "CASH"
+        
+        # 1. Get the Raw SVR Signal
+        signal_asset = best_ticker if daily_preds.max() > threshold else "CASH"
+        
+        # 2. Check Trailing Stop if we are currently holding an ETF
+        if current_asset != "CASH":
+            current_price = raw_df.loc[date, current_asset]
+            peak_price_since_entry = max(peak_price_since_entry, current_price)
+            
+            if current_price < (peak_price_since_entry * 0.90): # 10% Stop
+                stop_triggered = True
+        
+        # 3. Decision Logic
+        if stop_triggered:
+            new_asset = "CASH"
+            # Reset stop only if the model points to a DIFFERENT asset
+            if signal_asset != current_asset and signal_asset != "CASH":
+                stop_triggered = False
+                new_asset = signal_asset
+                peak_price_since_entry = raw_df.loc[date, new_asset] if new_asset != "CASH" else 0.0
+        else:
+            new_asset = signal_asset
+            if new_asset != current_asset and new_asset != "CASH":
+                peak_price_since_entry = raw_df.loc[date, new_asset]
+
+        # 4. Execute Trade (T-Costs)
         if new_asset != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = new_asset
