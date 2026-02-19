@@ -241,6 +241,17 @@ class FeatureLoader:
                 .sort_index()
             )
 
+            # Sanitise column names before upload — prevents tuple-string
+            # columns like "('Price', 'GLD')" leaking from yfinance MultiIndex
+            def _clean_col(c) -> str:
+                c = str(c).strip()
+                if c.startswith("('") or c.startswith('("'):
+                    parts = c.strip("()").replace("'", "").replace('"', "").split(",")
+                    c = parts[-1].strip()
+                return c
+
+            final_df.columns = [_clean_col(c) for c in final_df.columns]
+
             # --- Upload to HuggingFace ---
             buf = io.BytesIO()
             final_df.to_parquet(buf)
