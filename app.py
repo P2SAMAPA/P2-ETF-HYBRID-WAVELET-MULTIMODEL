@@ -165,7 +165,11 @@ if output:
     max_dd = data["Drawdown"].min()
    # Calculates the single worst 24-hour drop in the history of the backtest
     max_daily_loss = data["Strategy_Ret"].min()
-    hit_ratio = sum(1 for r in output["audit"]["Daily_Return"] if r > 0) / 15
+   # Synchronize Hit Ratio directly to the Audit Table display
+    # We count positive returns from the exact same dataframe the table uses
+    audit_data = output["audit"]
+    positive_days = (audit_data["Daily_Return"] > 0).sum()
+    hit_ratio_sync = positive_days / len(audit_data) if len(audit_data) > 0 else 0
 
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
