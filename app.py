@@ -126,7 +126,7 @@ mdd_peak = ((data['Strategy_Path'] / data['Strategy_Path'].cummax()) - 1).min()
 sharpe = (ann_ret - LIVE_SOFR) / (data['Strategy_Ret'].std() * np.sqrt(252))
 hit_ratio = (data['ETF_Predicted'].tail(15).gt(0) == data['GLD_Ret'].tail(15).gt(0)).mean()
 
-st.title("🎯 P2 Momentum Intelligence") # Standard Header
+st.title("🎯 P2 ETF WAVELET SVR PPO MODEL") # Standard Header
 
 st.markdown(f"""
 <div class="target-box">
