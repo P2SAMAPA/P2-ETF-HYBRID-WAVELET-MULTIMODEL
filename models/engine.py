@@ -8,59 +8,11 @@ import os
 
 
 # ---------------------------------------------------------------------------
-# FEATURE BUILDER
-# Defined here so app.py can do: from models.engine import MomentumEngine, build_features
-# All features are lagged by >= 1 day — zero look-ahead bias.
+# build_features is imported here from processor so app.py can do:
+#   from models.engine import MomentumEngine, build_features
+# This re-export keeps app.py imports clean and simple.
 # ---------------------------------------------------------------------------
-
-def build_features(df: pd.DataFrame, target_col: str = "GLD_Ret") -> tuple:
-    """
-    Constructs a lag-safe feature matrix from a returns DataFrame.
-
-    All features at row i are known at the close of day i-1, predicting
-    the return on day i. This guarantees zero look-ahead bias.
-
-    Features engineered:
-      - 1, 3, 5, 10, 21-day lagged returns of the target
-      - 5 and 21-day rolling realised volatility of the target (lagged 1 day)
-      - All other columns in df lagged by 1 day (cross-asset / macro proxies)
-
-    Parameters
-    ----------
-    df         : DataFrame of daily returns and macro levels.
-    target_col : Column the SVR should predict (next-day return).
-
-    Returns
-    -------
-    X            : np.ndarray (n_samples, n_features)
-    y            : np.ndarray (n_samples,)  next-day target returns
-    valid_index  : pd.DatetimeIndex of rows used (NaN rows dropped)
-    feature_names: list[str]
-    """
-    feat = pd.DataFrame(index=df.index)
-
-    # Lagged return features
-    for lag in [1, 3, 5, 10, 21]:
-        feat[f"ret_lag{lag}"] = df[target_col].shift(lag)
-
-    # Rolling volatility features (lagged 1 day so known before the bar opens)
-    feat["vol_5d"]  = df[target_col].rolling(5).std().shift(1)
-    feat["vol_21d"] = df[target_col].rolling(21).std().shift(1)
-
-    # Cross-asset / macro columns — all lagged 1 day
-    extra_cols = [c for c in df.columns if c != target_col]
-    for col in extra_cols:
-        feat[f"{col}_lag1"] = df[col].shift(1)
-
-    # Target: next-day return
-    feat["__target__"] = df[target_col]
-
-    feat.dropna(inplace=True)
-    feature_names = [c for c in feat.columns if c != "__target__"]
-
-    X = feat[feature_names].values
-    y = feat["__target__"].values
-    return X, y, feat.index, feature_names
+from data.processor import build_feature_matrix as build_features  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -71,17 +23,17 @@ class MomentumEngine:
     def __init__(self, c_param: float = 700.0, degree: int = 3):
         """
         High-Conviction Momentum Engine.
-        SVR with 3rd-degree Polynomial Kernel, C=700.
-        Wrapped in a sklearn Pipeline so live/validation data is scaled
-        identically to training data via the fitted StandardScaler.
+        SVR with 3rd-degree Polynomial Kernel, C=700 for aggressive
+        trend-following. Wrapped in a sklearn Pipeline so validation
+        and live data are scaled identically to training data.
         """
-        self.c_param  = c_param
-        self.degree   = degree
+        self.c_param    = c_param
+        self.degree     = degree
         self.is_trained = False
 
-        # epsilon=0.001 is appropriate for daily return magnitudes (~0.0001–0.02).
-        # The previous value of 0.1 was larger than most daily returns, causing
-        # the SVR to ignore most training samples and predict near-zero for everything.
+        # epsilon=0.001 is appropriate for daily return magnitudes (~0.0001-0.02).
+        # Original value of 0.1 was larger than most daily returns, causing the
+        # SVR to ignore most training samples and predict near-zero everywhere.
         self.model = Pipeline([
             ('scaler', StandardScaler()),
             ('svr', SVR(
@@ -96,12 +48,12 @@ class MomentumEngine:
 
     def train(self, X: np.ndarray, y: np.ndarray) -> bool:
         """
-        Trains the SVR pipeline.
+        Trains the SVR pipeline on the feature matrix from build_features().
 
         Parameters
         ----------
-        X : (n_samples, n_features) — output of processor.build_feature_matrix()
-        y : (n_samples,)            — next-day target returns
+        X : (n_samples, n_features)
+        y : (n_samples,) — next-day target returns
 
         Returns True on success, False on failure.
         """
@@ -114,6 +66,7 @@ class MomentumEngine:
         try:
             self.model.fit(X, y)
             self.is_trained = True
+            print(f"SVR trained on {len(X)} samples.")
             return True
         except Exception as e:
             print(f"Training Error: {e}")
@@ -121,8 +74,8 @@ class MomentumEngine:
 
     def predict_signal(self, current_features: np.ndarray) -> float:
         """
-        Predicts the next-period return for a single feature row.
-        Positive → long GLD. Negative / below threshold → hold CASH.
+        Predicts next-period return for a single feature row.
+        Positive → long GLD. At or below threshold → hold CASH.
 
         Parameters
         ----------
@@ -137,7 +90,7 @@ class MomentumEngine:
     def predict_series(self, X: np.ndarray) -> np.ndarray:
         """
         Vectorised prediction over an entire feature matrix.
-        Used in backtesting to avoid slow row-by-row loops.
+        Used in backtesting to score the full OOS period in one call.
 
         Parameters
         ----------
@@ -171,7 +124,7 @@ class MomentumEngine:
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"No saved model at: {filepath}")
         instance = cls.__new__(cls)
-        instance.model = joblib.load(filepath)
+        instance.model     = joblib.load(filepath)
         instance.is_trained = True
         return instance
 
@@ -183,32 +136,27 @@ class MomentumEngine:
 def update_model_checkpoint(
     raw_df: pd.DataFrame,
     target_col: str = "GLD",
-    save_path: str = "models/svr_momentum_poly.pkl"
+    save_path: str  = "models/svr_momentum_poly.pkl"
 ) -> "MomentumEngine | None":
     """
     End-to-end retraining helper:
-      1. Calls processor.build_feature_matrix() to get denoised, lag-safe features
-      2. Trains a fresh MomentumEngine on the full dataset
+      1. Calls build_features() (processor.py) to get denoised, lag-safe features
+      2. Trains a fresh MomentumEngine
       3. Saves to disk
 
     Parameters
     ----------
     raw_df     : Raw price + macro DataFrame from loader.py
-    target_col : ETF column to predict
+    target_col : ETF column to predict (e.g. "GLD")
     save_path  : Where to persist the fitted pipeline
-
-    Returns
-    -------
-    Trained MomentumEngine, or None on failure.
     """
     X, y, _, _ = build_features(raw_df, target_col=target_col)
 
-    engine = MomentumEngine()
+    engine  = MomentumEngine()
     success = engine.train(X, y)
 
     if success:
         engine.save(save_path)
-        print(f"Model trained on {len(y)} samples → saved to {save_path}")
         return engine
 
     print("Model training failed — returning None.")
