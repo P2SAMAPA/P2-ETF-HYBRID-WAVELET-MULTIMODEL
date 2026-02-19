@@ -14,11 +14,9 @@ HF_REPO_TYPE = "dataset"
 HF_FILENAME  = "master_data.parquet"
 DATA_START   = pd.Timestamp("2008-01-01")
 
-# ETF tickers — standard (yfinance) and Stooq format auto-mapped
 ETF_TICKERS   = ["GLD", "SPY", "AGG", "TLT", "TBT", "VNQ", "SLV"]
 STOOQ_ETF_MAP = {t: f"{t}.US" for t in ETF_TICKERS}
 
-# Macro config: { column_name: (fred_series_id, stooq_fallback_or_None) }
 MACRO_CONFIG = {
     "VIX":       ("VIXCLS",        "^VIX"),
     "DXY":       ("DTWEXBGS",      "DXY"),
@@ -44,8 +42,7 @@ def _fetch_etf_stooq(tickers: list, start: pd.Timestamp) -> pd.DataFrame:
             s = df["Close"].rename(ticker)
             frames.append(s[s.index >= start])
         result = pd.concat(frames, axis=1).sort_index()
-        result.dropna(how="all", inplace=True)
-        return result
+        return result.dropna(how="all")
     except Exception:
         return pd.DataFrame()
 
@@ -56,9 +53,7 @@ def _fetch_etf_yfinance(tickers: list, start: pd.Timestamp) -> pd.DataFrame:
         if not isinstance(raw.columns, pd.MultiIndex):
             closes.columns = tickers
         closes.index = pd.DatetimeIndex(closes.index)
-        closes = closes[closes.index >= start]
-        closes.dropna(how="all", inplace=True)
-        return closes
+        return closes[closes.index >= start].dropna(how="all")
     except Exception:
         return pd.DataFrame()
 
@@ -165,10 +160,10 @@ class FeatureLoader:
             return f"Sync Failed: {str(e)}"
 
 # ---------------------------------------------------------------------------
-# APP WRAPPER (Corrected Indentation)
+# APP WRAPPER (This part was causing the error)
 # ---------------------------------------------------------------------------
 def load_raw_data():
-    """Satisfies the app.py import by initializing the FeatureLoader"""
+    """Wrapper function to satisfy app.py import requirements"""
     try:
         f_key = st.secrets["FRED_API_KEY"]
     except Exception:
