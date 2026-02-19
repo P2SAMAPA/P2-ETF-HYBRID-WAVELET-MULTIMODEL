@@ -175,7 +175,8 @@ if output:
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
     m3.metric("Max Drawdown (P-T)", f"{max_dd:.2%}")
     m4.metric("Max DD (Daily)", f"{max_daily_loss:.2%}")
-    m5.metric("Hit Ratio (15D)", f"{hit_ratio:.0%}")
+    # Change 'hit_ratio' to 'hit_ratio_sync' to match the new calculation
+    m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
 
     # ROW 3: EQUITY CHART
     st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance: Strategy vs. SPY Benchmark</h3>", unsafe_allow_html=True)
