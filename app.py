@@ -161,6 +161,12 @@ def get_final_data(data_hash: str, start_yr: int,
     oos_df["Strategy_Path"] = (pd.Series(strat_rets).add(1).cumprod() * 100).values
     oos_df["SVR_Predicted"] = pred_df.max(axis=1).values
     oos_df["Realised_Return_View"] = real_view
+    # ADD THESE THREE LINES TO RESTORE THE GRAPH
+    oos_df["GLD_Benchmark"] = (raw_df.loc[oos_idx, "GLD"].pct_change().add(1).cumprod() * 100).values
+    oos_df["SPY_Benchmark"] = (raw_df.loc[oos_idx, "SPY"].pct_change().add(1).cumprod() * 100).values
+    oos_df["AGG_Benchmark"] = (raw_df.loc[oos_idx, "AGG"].pct_change().add(1).cumprod() * 100).values
+    
+    return oos_df                    
     
     # Benchmarks
     oos_df["GLD_Benchmark"] = (raw_df.loc[oos_idx, "GLD"].pct_change().add(1).cumprod() * 100).values
