@@ -13,6 +13,6 @@ license: mit
 This is a Hybrid SVR-PPO model for ETF rotation using MODWT Wavelet denoising.
 
 ### Methodology
-- **MODWT Wavelet**: Removes high-frequency noise while maintaining time-alignment.
+- **DWT Wavelet**: Removes high-frequency noise while maintaining time-alignment.
 - **SVR**: Predicts next-day returns based on macro signals.
 - **PPO Agent**: Reinforcement Learning for optimal portfolio execution net of transaction costs.
