@@ -165,7 +165,7 @@ st.divider()
 st.subheader("📖 Methodology Details")
 st.markdown(f"""
 <div class="methodology-card">
-    <b>Model Foundation:</b> SVR using <b>3rd Degree Polynomial Kernel</b> with <b>C=500</b> to maximize trend-following curvature.<br>
+    <b>Model Foundation:</b> SVR using <b>3rd Degree Polynomial Kernel</b> with <b>C=700</b> to maximize trend-following curvature.<br>
     <b>Wavelet Filtering:</b> Denoises signals across multiple timescales to ensure High-C does not react to intraday noise.<br>
     <b>PPO Integration:</b> (Option B) Probabilistic agent that adjusts the entry threshold based on volatility clusters.<br>
     <b>Risk Guard:</b> Automated <b>12% Trailing Stop-Loss</b>. Exits to CASH if equity falls 12% from its current series peak.
