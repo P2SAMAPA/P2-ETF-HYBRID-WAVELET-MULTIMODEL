@@ -1,300 +1,261 @@
 import io
-import logging
 import pandas as pd
 import numpy as np
 import yfinance as yf
 from fredapi import Fred
 from huggingface_hub import HfApi, hf_hub_download
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-log = logging.getLogger(__name__)
-
-
 # ---------------------------------------------------------------------------
-# TICKER MAPS
+# CONSTANTS
 # ---------------------------------------------------------------------------
 
-# Stooq appends ".US" for US-listed ETFs
-ETF_STOOQ_MAP = {
-    "GLD": "GLD.US",
-    "SLV": "SLV.US",
-    "SPY": "SPY.US",
-    "AGG": "AGG.US",
-    "TLT": "TLT.US",
-    "TBT": "TBT.US",
-    "VNQ": "VNQ.US",
+HF_REPO_ID   = "P2SAMAPA/fi-etf-macro-signal-master-data"
+HF_REPO_TYPE = "dataset"
+HF_FILENAME  = "master_data.parquet"
+DATA_START   = pd.Timestamp("2008-01-01")
+
+# ETF tickers — standard (yfinance) and Stooq format auto-mapped
+ETF_TICKERS   = ["GLD", "SPY", "AGG", "TLT", "TBT", "VNQ", "SLV"]
+STOOQ_ETF_MAP = {t: f"{t}.US" for t in ETF_TICKERS}  # e.g. GLD -> GLD.US
+
+# Macro config: { column_name: (fred_series_id, stooq_fallback_or_None) }
+MACRO_CONFIG = {
+    "VIX":       ("VIXCLS",        "^VIX"),   # CBOE Volatility Index
+    "DXY":       ("DTWEXBGS",      "DXY"),    # Broad Dollar Index
+    "T10Y2Y":    ("T10Y2Y",        None),     # 10Y-2Y Treasury spread
+    "SOFR":      ("SOFR",          "^IRX"),   # SOFR / 13-week T-bill proxy
+    "IG_SPREAD": ("BAMLC0A0CM",    None),     # IG Corp OAS spread
+    "HY_SPREAD": ("BAMLH0A0HYM2",  None),     # HY OAS spread
 }
 
-# Macro signals: FRED series ID + optional Stooq fallback ticker.
-# Credit spread series are FRED-only — no clean Stooq equivalent exists.
-# On FRED failure those columns are forward-filled from last known master value.
-MACRO_MAP = {
-    "VIX":    {"fred": "VIXCLS",       "stooq": "^VIX"},
-    "DXY":    {"fred": "DTWEXBGS",     "stooq": "DXY.FST"},
-    "T10Y2Y": {"fred": "T10Y2Y",       "stooq": None},
-    "SOFR":   {"fred": "SOFR",         "stooq": None},
-    "IG_OAS": {"fred": "BAMLC0A0CM",   "stooq": None},    # IG Corp OAS spread
-    "HY_OAS": {"fred": "BAMLH0A0HYM2", "stooq": None},    # High Yield OAS spread
-}
 
-FULL_SEED_START = pd.Timestamp("2008-01-01")
+# ---------------------------------------------------------------------------
+# ETF FETCHERS
+# ---------------------------------------------------------------------------
+
+def _fetch_etf_stooq(tickers: list, start: pd.Timestamp) -> pd.DataFrame:
+    """Fetch ETF closing prices from Stooq. Returns empty DF on failure."""
+    try:
+        frames = []
+        for ticker in tickers:
+            stooq_ticker = STOOQ_ETF_MAP[ticker]
+            url = f"https://stooq.com/q/d/l/?s={stooq_ticker.lower()}&i=d"
+            df  = pd.read_csv(url, parse_dates=["Date"], index_col="Date")
+            df.index = pd.DatetimeIndex(df.index)
+            if "Close" not in df.columns:
+                print(f"Stooq: no Close column for {stooq_ticker} — aborting Stooq fetch")
+                return pd.DataFrame()
+            s = df["Close"].rename(ticker)
+            frames.append(s[s.index >= start])
+
+        result = pd.concat(frames, axis=1).sort_index()
+        result.dropna(how="all", inplace=True)
+        print(f"Stooq ETF OK: {len(result)} rows")
+        return result
+    except Exception as e:
+        print(f"Stooq ETF fetch failed: {e}")
+        return pd.DataFrame()
+
+
+def _fetch_etf_yfinance(tickers: list, start: pd.Timestamp) -> pd.DataFrame:
+    """yfinance fallback for ETF closing prices."""
+    try:
+        raw = yf.download(tickers, start=start, auto_adjust=False, progress=False)
+        closes = raw["Close"].copy() if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]]
+        if not isinstance(raw.columns, pd.MultiIndex):
+            closes.columns = tickers
+        closes.index = pd.DatetimeIndex(closes.index)
+        closes = closes[closes.index >= start]
+        closes.dropna(how="all", inplace=True)
+        print(f"yfinance ETF OK: {len(closes)} rows")
+        return closes
+    except Exception as e:
+        print(f"yfinance ETF fetch failed: {e}")
+        return pd.DataFrame()
 
 
 # ---------------------------------------------------------------------------
-# LOW-LEVEL FETCHERS
+# MACRO FETCHERS
 # ---------------------------------------------------------------------------
 
-def _fetch_stooq_etf(ticker: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
-    """Fetch a single ETF close price series from Stooq."""
-    stooq_ticker = ETF_STOOQ_MAP.get(ticker, f"{ticker}.US")
-    url = (
-        f"https://stooq.com/q/d/l/?s={stooq_ticker.lower()}"
-        f"&d1={start.strftime('%Y%m%d')}&d2={end.strftime('%Y%m%d')}&i=d"
-    )
-    try:
-        df = pd.read_csv(url, parse_dates=["Date"], index_col="Date")
-        if df.empty or "Close" not in df.columns:
-            raise ValueError("Empty or malformed Stooq response")
-        s = df["Close"].dropna()
-        s.name = ticker
-        log.info(f"Stooq OK: {ticker} — {len(s)} rows")
-        return s
-    except Exception as e:
-        log.warning(f"Stooq FAILED for {ticker}: {e}")
-        return pd.Series(name=ticker, dtype=float)
-
-
-def _fetch_yfinance_etf(ticker: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
-    """Fallback: fetch a single ETF raw close price series from yfinance."""
-    try:
-        raw = yf.download(ticker, start=start, end=end, auto_adjust=False, progress=False)
-        if raw.empty or "Close" not in raw.columns:
-            raise ValueError("Empty yfinance response")
-        s = raw["Close"].dropna()
-        s.name = ticker
-        s.index = pd.to_datetime(s.index)
-        log.info(f"yfinance OK: {ticker} — {len(s)} rows")
-        return s
-    except Exception as e:
-        log.warning(f"yfinance FAILED for {ticker}: {e}")
-        return pd.Series(name=ticker, dtype=float)
-
-
-def _fetch_etf(ticker: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
-    """Stooq first → yfinance fallback for a single ETF."""
-    s = _fetch_stooq_etf(ticker, start, end)
-    if s.empty:
-        log.info(f"Falling back to yfinance for {ticker}")
-        s = _fetch_yfinance_etf(ticker, start, end)
-    return s
-
-
-def _fetch_fred_macro(name: str, fred_id: str, fred: Fred,
-                      start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
+def _fetch_macro_fred(fred: Fred, series_id: str, name: str,
+                      start: pd.Timestamp) -> pd.Series:
     """Fetch a single macro series from FRED."""
     try:
-        s = fred.get_series(fred_id, observation_start=start, observation_end=end)
-        s = s.dropna()
-        s.index = pd.to_datetime(s.index)
-        s.name = name
-        log.info(f"FRED OK: {name} ({fred_id}) — {len(s)} rows")
+        s = fred.get_series(series_id, observation_start=start)
+        s = pd.Series(s, name=name)
+        s.index = pd.DatetimeIndex(s.index)
+        print(f"FRED OK: {name} ({series_id}) — {len(s)} obs")
         return s
     except Exception as e:
-        log.warning(f"FRED FAILED for {name} ({fred_id}): {e}")
-        return pd.Series(name=name, dtype=float)
+        print(f"FRED failed for {name} ({series_id}): {e}")
+        return pd.Series(dtype=float, name=name)
 
 
-def _fetch_stooq_macro(name: str, stooq_ticker: str,
-                       start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
-    """Stooq fallback for macro signals that have a Stooq equivalent."""
-    url = (
-        f"https://stooq.com/q/d/l/?s={stooq_ticker.lower()}"
-        f"&d1={start.strftime('%Y%m%d')}&d2={end.strftime('%Y%m%d')}&i=d"
-    )
+def _fetch_macro_stooq(ticker: str, name: str, start: pd.Timestamp) -> pd.Series:
+    """Stooq fallback for a single macro series."""
     try:
-        df = pd.read_csv(url, parse_dates=["Date"], index_col="Date")
-        if df.empty or "Close" not in df.columns:
-            raise ValueError("Empty or malformed Stooq response")
-        s = df["Close"].dropna()
-        s.name = name
-        log.info(f"Stooq macro OK: {name} — {len(s)} rows")
+        url = f"https://stooq.com/q/d/l/?s={ticker.lower()}&i=d"
+        df  = pd.read_csv(url, parse_dates=["Date"], index_col="Date")
+        df.index = pd.DatetimeIndex(df.index)
+        s = df["Close"].rename(name)
+        s = s[s.index >= start]
+        print(f"Stooq macro fallback OK: {name} ({ticker}) — {len(s)} obs")
         return s
     except Exception as e:
-        log.warning(f"Stooq macro FAILED for {name}: {e}")
-        return pd.Series(name=name, dtype=float)
+        print(f"Stooq macro fallback failed for {name} ({ticker}): {e}")
+        return pd.Series(dtype=float, name=name)
 
 
-def _fetch_macro(name: str, fred: Fred,
-                 start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
+def _fetch_all_macros(fred: Fred, start: pd.Timestamp) -> pd.DataFrame:
     """
-    FRED first → Stooq fallback for a single macro signal.
-    If no Stooq equivalent exists (stooq=None), returns empty Series on
-    FRED failure — caller handles forward-fill from master history.
+    Fetches all macro signals: FRED first, Stooq fallback where available.
+    For series with no Stooq equivalent (T10Y2Y, IG_SPREAD, HY_SPREAD),
+    forward-fills from last known value if FRED fails — never drops the row.
     """
-    cfg = MACRO_MAP[name]
-    s = _fetch_fred_macro(name, cfg["fred"], fred, start, end)
-    if s.empty and cfg["stooq"] is not None:
-        log.info(f"Falling back to Stooq for macro: {name}")
-        s = _fetch_stooq_macro(name, cfg["stooq"], start, end)
-    if s.empty:
-        log.warning(
-            f"{name}: both FRED and Stooq failed — "
-            f"will forward-fill from last known master value."
-        )
-    return s
+    series_list = []
+
+    for name, (fred_id, stooq_ticker) in MACRO_CONFIG.items():
+        s = _fetch_macro_fred(fred, fred_id, name, start)
+
+        if s.dropna().empty:
+            if stooq_ticker:
+                print(f"FRED empty for {name} — trying Stooq fallback ({stooq_ticker})...")
+                s = _fetch_macro_stooq(stooq_ticker, name, start)
+            else:
+                print(f"FRED empty for {name} — no Stooq equivalent, will forward-fill.")
+
+        series_list.append(s)
+
+    macro_df = pd.concat(series_list, axis=1)
+    macro_df.index = pd.DatetimeIndex(macro_df.index)
+    # Forward-fill with limit=5 to handle weekends/FRED publication lags
+    # without propagating stale values dangerously far
+    macro_df = macro_df.ffill(limit=5)
+    return macro_df
 
 
 # ---------------------------------------------------------------------------
-# MAIN LOADER CLASS
+# FEATURE LOADER
 # ---------------------------------------------------------------------------
 
 class FeatureLoader:
-    def __init__(self, fred_key: str, hf_token: str, repo_id: str):
-        self.fred        = Fred(api_key=fred_key)
-        self.hf_token    = hf_token
-        self.repo_id     = repo_id
-        self.etf_tickers = list(ETF_STOOQ_MAP.keys())   # GLD SLV SPY AGG TLT TBT VNQ
-        self.macro_names = list(MACRO_MAP.keys())        # VIX DXY T10Y2Y SOFR IG_OAS HY_OAS
-
-    # ------------------------------------------------------------------
-    # HUGGINGFACE I/O
-    # ------------------------------------------------------------------
-
-    def _load_master(self) -> tuple:
+    def __init__(self, fred_key: str, hf_token: str):
         """
-        Loads master_data.parquet from HuggingFace.
-        Returns (DataFrame, is_incremental: bool).
-        Raises specific exceptions instead of bare except.
+        Parameters
+        ----------
+        fred_key : from st.secrets["FRED_API_KEY"]
+        hf_token : from st.secrets["HF_TOKEN"] — only needed for uploads,
+                   reads are public.
+        """
+        self.fred     = Fred(api_key=fred_key)
+        self.hf_token = hf_token
+        self.repo_id  = HF_REPO_ID
+
+    def load_master(self) -> pd.DataFrame:
+        """
+        Reads master_data.parquet from the public HuggingFace dataset.
+        No token required for public datasets.
+        Returns empty DataFrame if not found.
         """
         try:
             path = hf_hub_download(
-                repo_id=self.repo_id,
-                filename="master_data.parquet",
-                repo_type="dataset",
-                token=self.hf_token
+                repo_id   = self.repo_id,
+                filename  = HF_FILENAME,
+                repo_type = HF_REPO_TYPE,
             )
-            master_df = pd.read_parquet(path)
-            master_df.index = pd.to_datetime(master_df.index)
-            if len(master_df) > 1000:
-                log.info(f"Loaded master dataset: {len(master_df)} rows")
-                return master_df, True
-            log.warning("Master dataset has fewer than 1000 rows — treating as full seed")
-            return master_df, False
+            df = pd.read_parquet(path)
+            df.index = pd.DatetimeIndex(df.index)
+            print(f"Master parquet loaded: {len(df)} rows, cols: {list(df.columns)}")
+            return df
         except Exception as e:
-            log.warning(f"Could not load master from HuggingFace: {e}")
-            return pd.DataFrame(), False
-
-    def _upload_master(self, df: pd.DataFrame) -> bool:
-        """Uploads master DataFrame to HuggingFace as parquet."""
-        try:
-            buf = io.BytesIO()
-            df.to_parquet(buf)
-            buf.seek(0)   # seek before passing to avoid materialising full bytes in memory
-            HfApi().upload_file(
-                path_or_fileobj=buf,
-                path_in_repo="master_data.parquet",
-                repo_id=self.repo_id,
-                repo_type="dataset",
-                token=self.hf_token
-            )
-            log.info(f"Uploaded master dataset: {len(df)} rows")
-            return True
-        except Exception as e:
-            log.error(f"Upload failed: {e}")
-            return False
-
-    # ------------------------------------------------------------------
-    # FETCH ALL DATA FOR A DATE RANGE
-    # ------------------------------------------------------------------
-
-    def _fetch_all(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-        """
-        Fetches all ETF prices (Stooq→yfinance) and macro signals (FRED→Stooq)
-        for the given date range. Returns raw prices and macro levels — NOT returns.
-        Returns are computed downstream in processor.py.
-        """
-        # --- ETFs: Stooq first → yfinance fallback ---
-        etf_series = [_fetch_etf(t, start, end) for t in self.etf_tickers]
-        etf_df = pd.concat(etf_series, axis=1)
-        etf_df.index = pd.to_datetime(etf_df.index)
-
-        # --- Macros: FRED first → Stooq fallback ---
-        macro_series = [_fetch_macro(n, self.fred, start, end) for n in self.macro_names]
-        macro_df = pd.concat(macro_series, axis=1)
-        macro_df.index = pd.to_datetime(macro_df.index)
-
-        # --- Combine ---
-        combined = pd.concat([etf_df, macro_df], axis=1)
-        combined = combined[combined.index < end].sort_index()
-
-        # Forward-fill macros only (limit=5 days: covers weekends + holidays)
-        # ETF prices intentionally NOT forward-filled — gaps remain visible
-        combined[self.macro_names] = combined[self.macro_names].ffill(limit=5)
-
-        # Drop rows where ALL ETF prices are missing (non-trading days)
-        combined = combined.dropna(subset=self.etf_tickers, how='all')
-
-        return combined
-
-    # ------------------------------------------------------------------
-    # PUBLIC SYNC ENTRY POINT
-    # ------------------------------------------------------------------
+            print(f"Could not load master parquet (will full-seed): {e}")
+            return pd.DataFrame()
 
     def sync_data(self) -> str:
         """
-        Main sync method:
-          1. Load existing master parquet from HuggingFace
-          2. Determine full seed vs incremental refresh
-          3. Fetch new data (Stooq→yfinance for ETFs, FRED→Stooq for macros)
-          4. Merge, deduplicate, forward-fill macro gaps at join boundary
-          5. Validate core columns present
-          6. Upload updated master to HuggingFace
+        Syncs market data to HuggingFace:
+          - ETF prices   : Stooq first → yfinance fallback
+          - Macro signals: FRED first  → Stooq fallback (ffill if no Stooq)
+          - Stores RAW PRICES (returns computed downstream in processor.py)
+          - Incremental refresh: fetches only new rows since last known date
+          - Full seed: fetches from 2008-01-01
 
-        Stores RAW PRICES + MACRO LEVELS. Returns computed in processor.py.
+        Returns a status string.
         """
         today = pd.Timestamp.now().normalize()
-        master_df, is_incremental = self._load_master()
 
-        # Already up to date check
-        if is_incremental:
+        # --- Load existing master ---
+        master_df    = self.load_master()
+        is_full_seed = master_df.empty or len(master_df) < 1000
+
+        if not is_full_seed:
             last_date = master_df.index.max()
             if last_date >= (today - pd.Timedelta(days=1)):
                 return "Incremental Refresh: Already Up to Date"
-            # FIXED: +1 day so we never re-fetch and silently overwrite the last known row
+            # Start from day after last row — no overlap, no boundary return issue
             start_fetch = last_date + pd.Timedelta(days=1)
         else:
-            start_fetch = FULL_SEED_START
+            start_fetch = DATA_START
 
-        log.info(f"Fetching: {start_fetch.date()} → {today.date()}")
+        print(f"{'Full Seed' if is_full_seed else 'Incremental'} from {start_fetch.date()}")
 
-        new_df = self._fetch_all(start_fetch, today)
+        try:
+            # --- ETF prices: Stooq first, yfinance fallback ---
+            etf_df = _fetch_etf_stooq(ETF_TICKERS, start_fetch)
+            if etf_df.empty or len(etf_df) < 2:
+                print("Stooq insufficient — falling back to yfinance...")
+                etf_df = _fetch_etf_yfinance(ETF_TICKERS, start_fetch)
 
-        if new_df.empty:
-            return "Sync Failed: No new data returned from any source"
+            if etf_df.empty:
+                return "Sync Failed: Could not fetch ETF data from Stooq or yfinance"
 
-        # Merge with master
-        if is_incremental and not master_df.empty:
-            combined = pd.concat([master_df, new_df])
-            combined = combined[~combined.index.duplicated(keep='last')].sort_index()
-            # Final forward-fill pass to cover macro gaps at the join boundary
-            combined[self.macro_names] = combined[self.macro_names].ffill(limit=5)
-        else:
-            combined = new_df.sort_index()
+            missing_etfs = [t for t in ETF_TICKERS if t not in etf_df.columns]
+            if missing_etfs:
+                print(f"Warning: Missing ETF columns: {missing_etfs}")
 
-        # Validate core ETFs are present and not entirely empty
-        core_etfs = ["GLD", "SPY"]
-        missing = [t for t in core_etfs if t not in combined.columns
-                   or combined[t].isna().all()]
-        if missing:
-            return f"Sync Failed: Core ETF data missing or all-NaN for {missing}"
+            # --- Macro signals: FRED first, Stooq fallback ---
+            macro_df = _fetch_all_macros(self.fred, start_fetch)
+            if macro_df.empty:
+                return "Sync Failed: Could not fetch any macro data"
 
-        if not self._upload_master(combined):
-            return "Sync Failed: Upload to HuggingFace failed"
+            # --- Combine and clean ---
+            combined = pd.concat([etf_df, macro_df], axis=1)
+            combined = combined.ffill(limit=5)
+            combined = combined[
+                (combined.index.dayofweek < 5) &   # weekdays only
+                (combined.index < today)            # no future dates
+            ]
 
-        status = "Incremental Refresh" if is_incremental else "Full Seed"
-        return (
-            f"Success: {status} complete | "
-            f"Rows: {len(combined)} | "
-            f"Columns: {list(combined.columns)} | "
-            f"Range: {combined.index.min().date()} → {combined.index.max().date()}"
-        )
+            # Drop rows where ALL ETF prices are missing
+            etf_cols = [c for c in ETF_TICKERS if c in combined.columns]
+            combined.dropna(subset=etf_cols, how="all", inplace=True)
+
+            if combined.empty:
+                return "Sync Failed: No valid rows after cleaning"
+
+            # --- Merge with master ---
+            final_df = combined if is_full_seed else pd.concat([master_df, combined])
+            final_df = (
+                final_df[~final_df.index.duplicated(keep="last")]
+                .sort_index()
+            )
+
+            # --- Upload to HuggingFace ---
+            buf = io.BytesIO()
+            final_df.to_parquet(buf)
+            buf.seek(0)
+
+            HfApi().upload_file(
+                path_or_fileobj = buf,
+                path_in_repo    = HF_FILENAME,
+                repo_id         = self.repo_id,
+                repo_type       = HF_REPO_TYPE,
+                token           = self.hf_token,
+            )
+
+            label = "Full Seed" if is_full_seed else "Incremental Refresh"
+            return f"Success: {label} complete. Rows: {len(final_df)}, Cols: {list(final_df.columns)}"
+
+        except Exception as e:
+            return f"Sync Failed: {str(e)}"
