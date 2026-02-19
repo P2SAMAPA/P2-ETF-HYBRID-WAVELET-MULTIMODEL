@@ -4,18 +4,14 @@ import numpy as np
 import plotly.express as px
 from datetime import datetime, timedelta
 from huggingface_hub import hf_hub_download
-
-from models.engine import MomentumEngine, build_features
+from models.engine import MomentumEngine
 from data.loader import FeatureLoader, HF_REPO_ID, HF_FILENAME, HF_REPO_TYPE
 from data.processor import build_feature_matrix
-
 # ---------------------------------------------------------------------------
 # 1. SECRETS — read silently, never exposed in UI
 # ---------------------------------------------------------------------------
-HF_TOKEN  = st.secrets["HF_TOKEN"]
-FRED_KEY  = st.secrets["FRED_API_KEY"]
-
-
+HF_TOKEN = st.secrets["HF_TOKEN"]
+FRED_KEY = st.secrets["FRED_API_KEY"]
 # ---------------------------------------------------------------------------
 # 2. LIVE SOFR — FRED first, Stooq fallback
 # ---------------------------------------------------------------------------
@@ -31,23 +27,18 @@ def get_live_sofr() -> float:
         return val
     except Exception as e:
         print(f"FRED SOFR failed: {e} — trying Stooq fallback")
-
     # Stooq fallback (13-week T-bill proxy)
     try:
         url = "https://stooq.com/q/d/l/?s=^irx&i=d"
-        df  = pd.read_csv(url)
+        df = pd.read_csv(url)
         val = float(df['Close'].iloc[-1]) / 100
         print(f"SOFR from Stooq: {val:.4%}")
         return val
     except Exception as e:
         print(f"Stooq SOFR fallback failed: {e} — using hardcoded default")
-
-    return 0.0532  # Last-resort hardcoded fallback
-
-LIVE_SOFR  = get_live_sofr()
+    return 0.0532 # Last-resort hardcoded fallback
+LIVE_SOFR = get_live_sofr()
 DAILY_SOFR = LIVE_SOFR / 360
-
-
 # ---------------------------------------------------------------------------
 # 3. LOAD RAW DATA FROM HUGGINGFACE (public dataset — no token needed)
 # ---------------------------------------------------------------------------
@@ -60,14 +51,13 @@ def load_raw_data() -> pd.DataFrame:
     """
     try:
         path = hf_hub_download(
-            repo_id       = HF_REPO_ID,
-            filename      = HF_FILENAME,
-            repo_type     = HF_REPO_TYPE,
-            force_download= True,  # Bypass stale local HF cache
+            repo_id = HF_REPO_ID,
+            filename = HF_FILENAME,
+            repo_type = HF_REPO_TYPE,
+            force_download= True, # Bypass stale local HF cache
         )
         df = pd.read_parquet(path)
         df.index = pd.DatetimeIndex(df.index)
-
         # Sanitise column names — guard against tuple-string columns like
         # "('Price', 'GLD')" which appear when yfinance MultiIndex leaks into parquet
         def _clean_col(c: str) -> str:
@@ -76,25 +66,22 @@ def load_raw_data() -> pd.DataFrame:
                 parts = c.strip("()").replace("'", "").replace('"', "").split(",")
                 c = parts[-1].strip()
             return c
-
         df.columns = [_clean_col(c) for c in df.columns]
         print(f"Master parquet loaded: {len(df)} rows, cols: {list(df.columns)}")
         return df
     except Exception as e:
         st.error(f"Could not load master data from HuggingFace: {e}")
         return pd.DataFrame()
-
-
 # ---------------------------------------------------------------------------
 # 4. CORE BACKTEST PIPELINE
-#    Fixes vs original:
-#    (a) Real SVR signal via engine.py — no more rolling mean proxy
-#    (b) build_feature_matrix() in processor.py handles returns + denoising
-#    (c) Hard IS/OOS split — SVR trained only on pre-OOS data
-#    (d) OOS equity starts fresh at 100 — no in-sample contamination
-#    (e) Transaction costs flow correctly — applied on every signal flip
-#        and trailing stop exit; t_costs_bps is a cache key so any slider
-#        change fully invalidates the cache
+# Fixes vs original:
+# (a) Real SVR signal via engine.py — no more rolling mean proxy
+# (b) build_feature_matrix() in processor.py handles returns + denoising
+# (c) Hard IS/OOS split — SVR trained only on pre-OOS data
+# (d) OOS equity starts fresh at 100 — no in-sample contamination
+# (e) Transaction costs flow correctly — applied on every signal flip
+# and trailing stop exit; t_costs_bps is a cache key so any slider
+# change fully invalidates the cache
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def get_final_data(data_hash: str, start_yr: int,
@@ -102,20 +89,17 @@ def get_final_data(data_hash: str, start_yr: int,
     """
     Parameters
     ----------
-    data_hash    : Hash of raw DataFrame (shape + last date) used as cache key only.
+    data_hash : Hash of raw DataFrame (shape + last date) used as cache key only.
                    Avoids JSON round-trip which corrupts DatetimeIndex.
-    start_yr     : OOS start year — SVR trained on everything before this
+    start_yr : OOS start year — SVR trained on everything before this
     model_choice : "Option A" or "Option B" (PPO threshold variant)
-    t_costs_bps  : Transaction cost in basis points (from slider)
+    t_costs_bps : Transaction cost in basis points (from slider)
     """
     # Re-load directly from HuggingFace — avoids JSON round-trip corrupting DatetimeIndex
     raw_df = load_raw_data()
-
     today = pd.Timestamp.now().normalize()
-
     # Add CASH_Ret column for the backtest loop
     raw_df["CASH_Ret"] = DAILY_SOFR
-
     # -------------------------------------------------------------------
     # STEP 1: Build feature matrix (returns + denoising + lags)
     # -------------------------------------------------------------------
@@ -126,16 +110,13 @@ def get_final_data(data_hash: str, start_yr: int,
     except ValueError as e:
         st.error(f"Feature build failed: {e}")
         return pd.DataFrame()
-
     feat_df = pd.DataFrame(X_all, index=valid_idx, columns=feature_names)
-    tgt_s   = pd.Series(y_all, index=valid_idx, name="GLD_Ret")
-
+    tgt_s = pd.Series(y_all, index=valid_idx, name="GLD_Ret")
     # -------------------------------------------------------------------
     # STEP 2: Hard IS/OOS split — train SVR only on pre-OOS data
     # -------------------------------------------------------------------
-    is_mask  = valid_idx.year < start_yr
+    is_mask = valid_idx.year < start_yr
     oos_mask = valid_idx.year >= start_yr
-
     if is_mask.sum() < 50:
         st.warning(f"Only {is_mask.sum()} in-sample rows — OOS start year may be too early. "
                    f"Training on all available data instead.")
@@ -143,75 +124,60 @@ def get_final_data(data_hash: str, start_yr: int,
     else:
         X_train = feat_df[is_mask].values
         y_train = tgt_s[is_mask].values
-
     engine = MomentumEngine(c_param=700.0, degree=3)
     engine.train(X_train, y_train)
-
     # -------------------------------------------------------------------
     # STEP 3: Generate SVR predictions on OOS rows only
     # -------------------------------------------------------------------
-    X_oos   = feat_df[oos_mask].values
+    X_oos = feat_df[oos_mask].values
     oos_idx = valid_idx[oos_mask]
-
     if len(X_oos) == 0:
         st.error("No OOS data available. Try an earlier OOS start year.")
         return pd.DataFrame()
-
     svr_preds = engine.predict_series(X_oos)
-
     # PPO Option B: volatility-scaled entry threshold
     if "Option B" in model_choice:
-        oos_gld_ret  = tgt_s[oos_mask]
-        rolling_vol  = oos_gld_ret.shift(1).rolling(21).std().fillna(oos_gld_ret.std())
-        threshold    = (rolling_vol * 0.5).values
+        oos_gld_ret = tgt_s[oos_mask]
+        rolling_vol = oos_gld_ret.shift(1).rolling(21).std().fillna(oos_gld_ret.std())
+        threshold = (rolling_vol * 0.5).values
     else:
         threshold = np.zeros(len(oos_idx))
-
     raw_signal = (svr_preds > threshold).astype(int)
-
     # -------------------------------------------------------------------
     # STEP 4: OOS backtest loop
-    #   - equity starts at 100 at OOS start (clean, uncontaminated)
-    #   - t_cost_pct applied on every signal flip and trailing stop exit
+    # - equity starts at 100 at OOS start (clean, uncontaminated)
+    # - t_cost_pct applied on every signal flip and trailing stop exit
     # -------------------------------------------------------------------
     t_cost_pct = t_costs_bps / 10_000
-
     # Align GLD returns and CASH returns to OOS index
     gld_ret_col = "GLD_Ret" if "GLD_Ret" in raw_df.columns else None
     if gld_ret_col is None:
         # Compute GLD returns if not present
         raw_df["GLD_Ret"] = raw_df["GLD"].pct_change()
-
-    oos_gld_rets  = raw_df.loc[oos_idx, "GLD_Ret"].fillna(0).values
+    oos_gld_rets = raw_df.loc[oos_idx, "GLD_Ret"].fillna(0).values
     oos_cash_rets = np.full(len(oos_idx), DAILY_SOFR)
-
     strat_rets, realised_view, asset_names = [], [], []
     in_pos, peak, equity = False, 100.0, 100.0
     current_signal = 0
-
     for i in range(len(oos_idx)):
         new_signal = raw_signal[i]
-        asset_r    = oos_gld_rets[i]
-        cash_r     = oos_cash_rets[i]
-
+        asset_r = oos_gld_rets[i]
+        cash_r = oos_cash_rets[i]
         # Signal flip — deduct one-way transaction cost
         if new_signal != current_signal:
-            equity        *= (1 - t_cost_pct)
+            equity *= (1 - t_cost_pct)
             current_signal = new_signal
-
         if current_signal == 1:
             if not in_pos:
                 in_pos = True
-                peak   = equity      # reset peak on fresh entry
-
+                peak = equity # reset peak on fresh entry
             equity *= (1 + asset_r)
-            peak    = max(peak, equity)
-
+            peak = max(peak, equity)
             # 12% Trailing Stop-Loss
             if (equity / peak - 1) < -0.12:
-                in_pos         = False
+                in_pos = False
                 current_signal = 0
-                equity        *= (1 - t_cost_pct)   # exit cost on stop
+                equity *= (1 - t_cost_pct) # exit cost on stop
                 strat_rets.append(cash_r)
                 realised_view.append(cash_r)
                 asset_names.append("CASH (Stop)")
@@ -220,39 +186,32 @@ def get_final_data(data_hash: str, start_yr: int,
                 realised_view.append(asset_r)
                 asset_names.append("GLD")
         else:
-            in_pos  = False
+            in_pos = False
             equity *= (1 + cash_r)
             strat_rets.append(cash_r)
             realised_view.append(cash_r)
             asset_names.append("CASH")
-
     # -------------------------------------------------------------------
     # STEP 5: Assemble OOS DataFrame
     # -------------------------------------------------------------------
     oos_df = raw_df.loc[oos_idx].copy()
-    oos_df["Strategy_Ret"]         = strat_rets
+    oos_df["Strategy_Ret"] = strat_rets
     oos_df["Realised_Return_View"] = realised_view
-    oos_df["Allocated_Asset"]      = asset_names
-    oos_df["SVR_Predicted"]        = svr_preds
-    oos_df["GLD_Ret"]              = oos_gld_rets
-
+    oos_df["Allocated_Asset"] = asset_names
+    oos_df["SVR_Predicted"] = svr_preds
+    oos_df["GLD_Ret"] = oos_gld_rets
     oos_df["Strategy_Path"] = (1 + oos_df["Strategy_Ret"]).cumprod() * 100
-    oos_df["GLD_Benchmark"] = (1 + oos_df["GLD_Ret"]).cumprod()      * 100
-
+    oos_df["GLD_Benchmark"] = (1 + oos_df["GLD_Ret"]).cumprod() * 100
     # Benchmark returns for SPY and AGG
     for col in ["SPY", "AGG"]:
         if col in raw_df.columns:
             ret = raw_df[col].pct_change().loc[oos_idx].fillna(0)
             oos_df[f"{col}_Benchmark"] = (1 + ret).cumprod() * 100
-
     return oos_df
-
-
 # ---------------------------------------------------------------------------
 # 5. UI CONFIGURATION
 # ---------------------------------------------------------------------------
 st.set_page_config(layout="wide", page_title="P2 ETF WAVELET SVR PPO MODEL", page_icon="💹")
-
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; color: #1a1a1a; }
@@ -267,8 +226,6 @@ st.markdown("""
     }
     </style>
     """, unsafe_allow_html=True)
-
-
 # ---------------------------------------------------------------------------
 # 6. SIDEBAR
 # ---------------------------------------------------------------------------
@@ -278,12 +235,11 @@ with st.sidebar:
         "Active Engine",
         ["Option A: SVR(Poly-Aggressive)", "Option B: SVR(Poly-Aggressive) + PPO"]
     )
-    t_costs    = st.slider("Transaction Cost (bps)", 0, 100, 10, step=5)
+    t_costs = st.slider("Transaction Cost (bps)", 0, 100, 10, step=5)
     start_year = st.slider("OOS Start Year", 2010, 2024, 2014)
     # Floor at 2010 so SVR always has >= 2 years of IS training data
     st.divider()
     st.caption(f"Live SOFR: {LIVE_SOFR:.3%}")
-
     if st.button("🔄 Sync Market Data", use_container_width=True):
         with st.spinner("Syncing data from Stooq / yfinance / FRED..."):
             loader = FeatureLoader(fred_key=FRED_KEY, hf_token=HF_TOKEN)
@@ -293,47 +249,35 @@ with st.sidebar:
             st.success(result)
         else:
             st.error(result)
-
-
 # ---------------------------------------------------------------------------
 # 7. LOAD DATA & RUN PIPELINE
 # ---------------------------------------------------------------------------
 raw_df = load_raw_data()
-
 if raw_df.empty:
     st.error("No data loaded. Please click 'Sync Market Data' in the sidebar to seed the dataset.")
     st.stop()
-
 # Build a lightweight cache key from shape + last date — no JSON round-trip
 # (JSON serialisation corrupts DatetimeIndex, causing IS/OOS splits to fail)
 data_hash = f"{len(raw_df)}_{str(raw_df.index.max().date())}"
-
 data = get_final_data(data_hash, start_year, model_option, t_costs)
-
 if data.empty:
     st.error("Backtest returned no data. Try adjusting the OOS Start Year.")
     st.stop()
-
-
 # ---------------------------------------------------------------------------
 # 8. METRICS
 # ---------------------------------------------------------------------------
-n_years  = max(len(data) / 252, 0.01)
-ann_ret  = (data["Strategy_Path"].iloc[-1] / 100) ** (1 / n_years) - 1
+n_years = max(len(data) / 252, 0.01)
+ann_ret = (data["Strategy_Path"].iloc[-1] / 100) ** (1 / n_years) - 1
 mdd_peak = ((data["Strategy_Path"] / data["Strategy_Path"].cummax()) - 1).min()
-sharpe   = (ann_ret - LIVE_SOFR) / (data["Strategy_Ret"].std() * np.sqrt(252) + 1e-9)
-
+sharpe = (ann_ret - LIVE_SOFR) / (data["Strategy_Ret"].std() * np.sqrt(252) + 1e-9)
 # Hit ratio: SVR predicted direction vs actual GLD direction (last 15 OOS days)
 # SVR_Predicted is genuinely lag-safe (features shifted >= 1 day in processor.py)
-last15    = data.tail(15)
+last15 = data.tail(15)
 hit_ratio = (last15["SVR_Predicted"].gt(0) == last15["GLD_Ret"].gt(0)).mean()
-
-
 # ---------------------------------------------------------------------------
 # 9. HEADER
 # ---------------------------------------------------------------------------
 st.title("🎯 P2 ETF WAVELET SVR PPO MODEL")
-
 st.markdown(f"""
 <div class="target-box">
     <div style="color:#586069; font-size:14px;">
@@ -344,38 +288,31 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
 m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Ann. Return",     f"{ann_ret:.2%}")
-m2.metric("Sharpe Ratio",    f"{sharpe:.2f}")
-m3.metric("Max DD (P-T)",    f"{mdd_peak:.2%}")
-m4.metric("Max DD (Daily)",  f"{data['Strategy_Ret'].min():.2%}")
+m1.metric("Ann. Return", f"{ann_ret:.2%}")
+m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
+m3.metric("Max DD (P-T)", f"{mdd_peak:.2%}")
+m4.metric("Max DD (Daily)", f"{data['Strategy_Ret'].min():.2%}")
 m5.metric("Hit Ratio (15d)", f"{hit_ratio:.0%}")
-
-
 # ---------------------------------------------------------------------------
 # 10. EQUITY CURVE
 # ---------------------------------------------------------------------------
 bench_cols = ["Strategy_Path", "GLD_Benchmark"]
-color_map  = {"Strategy_Path": "#0041d0", "GLD_Benchmark": "#ffd700"}
-
+color_map = {"Strategy_Path": "#0041d0", "GLD_Benchmark": "#ffd700"}
 if "SPY_Benchmark" in data.columns:
     bench_cols.append("SPY_Benchmark")
     color_map["SPY_Benchmark"] = "#d73a49"
 if "AGG_Benchmark" in data.columns:
     bench_cols.append("AGG_Benchmark")
     color_map["AGG_Benchmark"] = "#28a745"
-
 st.plotly_chart(
     px.line(
         data, x=data.index, y=bench_cols,
-        title=f"OOS Equity Curve vs Benchmarks  |  TC = {t_costs} bps  |  OOS from {start_year}",
+        title=f"OOS Equity Curve vs Benchmarks | TC = {t_costs} bps | OOS from {start_year}",
         color_discrete_map=color_map
     ),
     use_container_width=True
 )
-
-
 # ---------------------------------------------------------------------------
 # 11. AUDIT LOG
 # ---------------------------------------------------------------------------
@@ -385,19 +322,15 @@ audit_df["Date"] = audit_df.index.strftime("%Y-%m-%d")
 audit_display = audit_df[["Date", "Allocated_Asset", "SVR_Predicted",
                            "Realised_Return_View"]].copy()
 audit_display.columns = ["Date", "ETF Picked", "SVR Predicted Return", "Realised Return"]
-
 def color_rets(val):
     if isinstance(val, (int, float)):
         return "color: green; font-weight: bold" if val > 0 else "color: red; font-weight: bold"
     return ""
-
 st.table(
     audit_display.style
     .applymap(color_rets, subset=["SVR Predicted Return", "Realised Return"])
     .format({"SVR Predicted Return": "{:.4%}", "Realised Return": "{:.4%}"})
 )
-
-
 # ---------------------------------------------------------------------------
 # 12. METHODOLOGY
 # ---------------------------------------------------------------------------
