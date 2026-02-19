@@ -1,0 +1,14 @@
+streamlit
+pandas
+numpy
+yfinance
+fredapi
+pywavelets
+scikit-learn
+stable-baselines3
+shimmy
+torch
+pandas-market-calendars
+huggingface_hub
+pyarrow
+plotly
