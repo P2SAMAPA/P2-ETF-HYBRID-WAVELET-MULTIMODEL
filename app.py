@@ -170,15 +170,22 @@ if output:
    # Filter out rows where returns are exactly zero (holidays/non-trading days)
     audit_data = output["audit"][output["audit"]["Daily_Return"] != 0].tail(15)
     positive_days = (audit_data["Daily_Return"] > 0).sum()
+   # Filter out rows where returns are zero (holidays)
+    audit_data = output["audit"][output["audit"]["Daily_Return"] != 0].tail(15)
+    
+    # Remove timestamps from the Date index for a cleaner look
+    audit_data.index = audit_data.index.date
+    
+    # Calculate Hit Ratio from the filtered trading days only
+    positive_days = (audit_data["Daily_Return"] > 0).sum()
     hit_ratio_sync = positive_days / len(audit_data) if len(audit_data) > 0 else 0
 
+    # UI Metrics
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
     m3.metric("Max Drawdown (P-T)", f"{max_dd:.2%}")
     m4.metric("Max DD (Daily)", f"{max_daily_loss:.2%}")
-    # Change 'hit_ratio' to 'hit_ratio_sync' to match the new calculation
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
-
     # ROW 3: EQUITY CHART
     st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance: Strategy vs. SPY Benchmark</h3>", unsafe_allow_html=True)
     fig = go.Figure()
