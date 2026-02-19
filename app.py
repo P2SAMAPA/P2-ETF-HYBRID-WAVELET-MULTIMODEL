@@ -167,7 +167,8 @@ if output:
     max_daily_loss = data["Strategy_Ret"].min()
    # Synchronize Hit Ratio directly to the Audit Table display
     # We count positive returns from the exact same dataframe the table uses
-    audit_data = output["audit"]
+   # Filter out rows where returns are exactly zero (holidays/non-trading days)
+    audit_data = output["audit"][output["audit"]["Daily_Return"] != 0].tail(15)
     positive_days = (audit_data["Daily_Return"] > 0).sum()
     hit_ratio_sync = positive_days / len(audit_data) if len(audit_data) > 0 else 0
 
