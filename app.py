@@ -174,8 +174,8 @@ def get_final_data(data_hash: str, start_yr: int,
                 peak = equity # reset peak on fresh entry
             equity *= (1 + asset_r)
             peak = max(peak, equity)
-            # 12% Trailing Stop-Loss
-            if (equity / peak - 1) < -0.12:
+            # 10% Trailing Stop-Loss
+            if (equity / peak - 1) < -0.10:
                 in_pos = False
                 current_signal = 0
                 equity *= (1 - t_cost_pct) # exit cost on stop
@@ -363,7 +363,7 @@ st.markdown(f"""
     realised volatility — higher vol raises the bar to enter a long position.<br><br>
     <b>Transaction Costs:</b> <b>{t_costs} bps</b> deducted on every signal flip
     and on trailing stop exits.<br><br>
-    <b>Risk Guard:</b> <b>12% Trailing Stop-Loss</b> — exits to CASH if equity
-    falls 12% from its running peak within a long position.
+    <b>Risk Guard:</b> <b>10% Trailing Stop-Loss</b> — exits to CASH if equity
+    falls 10% from its running peak within a long position.
 </div>
 """, unsafe_allow_html=True)
