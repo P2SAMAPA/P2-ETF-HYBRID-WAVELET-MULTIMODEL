@@ -6,7 +6,7 @@ from sklearn.pipeline import Pipeline
 import jobpath # Or your preferred model saving library
 
 class MomentumEngine:
-    def __init__(self, c_param=500.0, degree=3):
+    def __init__(self, c_param=700.0, degree=3):
         """
         Initializes the High-Conviction Momentum Engine.
         """
