@@ -22,7 +22,7 @@ LIVE_SOFR = get_live_sofr()
 DAILY_SOFR = LIVE_SOFR / 360
 
 # --- 2. UI CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="P2-ETF-Wavelet-SVR-PPO", page_icon="💹")
+st.set_page_config(layout="wide", page_title="P2 Momentum Intelligence", page_icon="💹")
 
 st.markdown("""
     <style>
@@ -54,7 +54,9 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
     threshold = 0.0002 if "Option B" in model_choice else 0.0
     raw_signal = np.where(df['ETF_Predicted'] > threshold, 1, 0)
     
+    # ACTIVE TRANSACTION COST CALCULATION
     t_cost_pct = t_costs_bps / 10000
+    
     strat_rets = []
     realised_view = []
     asset_names = []
@@ -66,7 +68,7 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
         asset_r = df['GLD_Ret'].iloc[i] 
         cash_r = df['CASH_Ret'].iloc[i]
         
-        # Transaction Costs deducted on every signal "flip"
+        # Deduct transaction costs on every signal change (Flip)
         if new_signal != current_signal:
             equity *= (1 - t_cost_pct)
             current_signal = new_signal
@@ -76,9 +78,9 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
             equity *= (1 + asset_r)
             peak = max(peak, equity)
             
-            if (equity / peak - 1) < -0.08: # Trailing Stop
+            if (equity / peak - 1) < -0.08: # 8% Trailing Stop
                 in_pos, current_signal = False, 0
-                equity *= (1 - t_cost_pct)
+                equity *= (1 - t_cost_pct) # Exit cost
                 strat_rets.append(cash_r)
                 realised_view.append(cash_r)
                 asset_names.append("CASH (Stop)")
@@ -90,7 +92,7 @@ def get_final_data(start_yr, model_choice, t_costs_bps):
             in_pos = False
             equity *= (1 + cash_r)
             strat_rets.append(cash_r)
-            realised_view.append(cash_r) # FIXED: CASH displays SOFR
+            realised_view.append(cash_r)
             asset_names.append("CASH")
             
     df['Strategy_Ret'] = strat_rets
@@ -106,12 +108,13 @@ with st.sidebar:
     st.header("⚙️ Settings")
     model_option = st.radio("Active Engine", ["Option A: SVR(Poly-Aggressive)", "Option B: SVR(Poly-Aggressive) + PPO"])
     t_costs = st.slider("Transaction Cost (bps)", 0, 100, 10, step=5)
-    start_year = st.slider("OOS Start Year", 2014, 2026, 2014) # Default to 2014
+    start_year = st.slider("OOS Start Year", 2014, 2026, 2014)
     st.divider()
     
     if st.button("🔄 Sync Market Data", use_container_width=True):
         st.cache_data.clear()
         st.session_state.sync_message = True
+        st.rerun()
 
     if st.session_state.get('sync_message'):
         st.success("Data Refreshed Successfully!")
@@ -123,7 +126,7 @@ mdd_peak = ((data['Strategy_Path'] / data['Strategy_Path'].cummax()) - 1).min()
 sharpe = (ann_ret - LIVE_SOFR) / (data['Strategy_Ret'].std() * np.sqrt(252))
 hit_ratio = (data['ETF_Predicted'].tail(15).gt(0) == data['GLD_Ret'].tail(15).gt(0)).mean()
 
-st.title("🎯 P2-ETF-Wavelet-SVR-PPO")
+st.title("🎯 P2 Momentum Intelligence") # Standard Header
 
 st.markdown(f"""
 <div class="target-box">
@@ -142,7 +145,7 @@ m5.metric("Hit Ratio (15d)", f"{hit_ratio:.0%}")
 st.plotly_chart(px.line(data, x=data.index, y=['Strategy_Path', 'Benchmark_Path'], 
                         title="Equity Curve", color_discrete_map={"Strategy_Path": "#0041d0", "Benchmark_Path": "#d73a49"}), use_container_width=True)
 
-# --- 6. AUDIT LOG (FIXED CASH RETURNS) ---
+# --- 6. AUDIT LOG (CLEANED) ---
 st.subheader("📋 15-Day Strategy Audit Log")
 audit_df = data.tail(15).copy()
 audit_df['Date'] = audit_df.index.strftime('%Y-%m-%d')
@@ -155,7 +158,7 @@ def color_rets(val):
     return ''
 
 st.table(audit_display.style.applymap(color_rets, subset=['ETF Predicted', 'Realised Return'])
-         .format({'ETF Predicted': '{:.2%}', 'Realised Return': '{:.6%}'})) # High precision for SOFR
+         .format({'ETF Predicted': '{:.2%}', 'Realised Return': '{:.2%}'})) # Fixed Precision
 
 # --- 7. METHODOLOGY ---
 st.divider()
