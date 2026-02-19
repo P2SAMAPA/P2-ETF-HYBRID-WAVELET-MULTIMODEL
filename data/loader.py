@@ -100,3 +100,19 @@ def load_raw_data() -> pd.DataFrame:
             df[f"{t}_Ret"] = df[t].pct_change()
             
     return df.dropna()
+    def load_raw_data():
+    """Wrapper function to satisfy app.py import requirements"""
+    # Use secrets for the API key if on Streamlit Cloud
+    try:
+        fred_key = st.secrets["FRED_API_KEY"]
+    except:
+        fred_key = "YOUR_KEY_HERE" # Fallback for local testing
+        
+    loader = FeatureLoader(fred_key=fred_key, hf_token=None)
+    df = loader.load_master()
+    
+    # Critical: Ensure return columns exist for the SVR
+    for t in ["GLD", "SPY", "AGG", "TLT", "TBT", "VNQ", "SLV"]:
+        if t in df.columns:
+            df[f"{t}_Ret"] = df[t].pct_change()
+    return df.dropna()
