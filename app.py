@@ -85,129 +85,86 @@ def load_raw_data() -> pd.DataFrame:
 # change fully invalidates the cache
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600)
 def get_final_data(data_hash: str, start_yr: int,
-                   model_choice: str, t_costs_bps: int) -> pd.DataFrame:
-    """
-    Parameters
-    ----------
-    data_hash : Hash of raw DataFrame (shape + last date) used as cache key only.
-                   Avoids JSON round-trip which corrupts DatetimeIndex.
-    start_yr : OOS start year — SVR trained on everything before this
-    model_choice : "Option A" or "Option B" (PPO threshold variant)
-    t_costs_bps : Transaction cost in basis points (from slider)
-    """
-    # Re-load directly from HuggingFace — avoids JSON round-trip corrupting DatetimeIndex
+                    model_choice: str, t_costs_bps: int) -> pd.DataFrame:
     raw_df = load_raw_data()
-    today = pd.Timestamp.now().normalize()
-    # Add CASH_Ret column for the backtest loop
-    raw_df["CASH_Ret"] = DAILY_SOFR
-    # -------------------------------------------------------------------
-    # STEP 1: Build feature matrix (returns + denoising + lags)
-    # -------------------------------------------------------------------
-    try:
-        X_all, y_all, valid_idx, feature_names = build_feature_matrix(
-            raw_df, target_col="GLD", denoise=True
-        )
-    except ValueError as e:
-        st.error(f"Feature build failed: {e}")
-        return pd.DataFrame()
-    feat_df = pd.DataFrame(X_all, index=valid_idx, columns=feature_names)
-    tgt_s = pd.Series(y_all, index=valid_idx, name="GLD_Ret")
-    # -------------------------------------------------------------------
-    # STEP 2: Hard IS/OOS split — train SVR only on pre-OOS data
-    # -------------------------------------------------------------------
-    is_mask = valid_idx.year < start_yr
-    oos_mask = valid_idx.year >= start_yr
-    if is_mask.sum() < 50:
-        st.warning(f"Only {is_mask.sum()} in-sample rows — OOS start year may be too early. "
-                   f"Training on all available data instead.")
-        X_train, y_train = X_all, y_all
-    else:
-        X_train = feat_df[is_mask].values
-        y_train = tgt_s[is_mask].values
-    engine = MomentumEngine(c_param=700.0, degree=3)
-    engine.train(X_train, y_train)
-    # -------------------------------------------------------------------
-    # STEP 3: Generate SVR predictions on OOS rows only
-    # -------------------------------------------------------------------
-    X_oos = feat_df[oos_mask].values
-    oos_idx = valid_idx[oos_mask]
-    if len(X_oos) == 0:
-        st.error("No OOS data available. Try an earlier OOS start year.")
-        return pd.DataFrame()
-    svr_preds = engine.predict_series(X_oos)
-    # PPO Option B: volatility-scaled entry threshold
-    if "Option B" in model_choice:
-        oos_gld_ret = tgt_s[oos_mask]
-        rolling_vol = oos_gld_ret.shift(1).rolling(21).std().fillna(oos_gld_ret.std())
-        threshold = (rolling_vol * 0.5).values
-    else:
-        threshold = np.zeros(len(oos_idx))
-    raw_signal = (svr_preds > threshold).astype(int)
-    # -------------------------------------------------------------------
-    # STEP 4: OOS backtest loop
-    # - equity starts at 100 at OOS start (clean, uncontaminated)
-    # - t_cost_pct applied on every signal flip and trailing stop exit
-    # -------------------------------------------------------------------
+    # All 5 ETFs you requested
+    assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
     t_cost_pct = t_costs_bps / 10_000
-    # Align GLD returns and CASH returns to OOS index
-    gld_ret_col = "GLD_Ret" if "GLD_Ret" in raw_df.columns else None
-    if gld_ret_col is None:
-        # Compute GLD returns if not present
-        raw_df["GLD_Ret"] = raw_df["GLD"].pct_change()
-    oos_gld_rets = raw_df.loc[oos_idx, "GLD_Ret"].fillna(0).values
-    oos_cash_rets = np.full(len(oos_idx), DAILY_SOFR)
-    strat_rets, realised_view, asset_names = [], [], []
-    in_pos, peak, equity = False, 100.0, 100.0
-    current_signal = 0
+    
+    # --- Step 1: Generate Predictions for all 5 Assets ---
+    all_preds = {}
+    for ticker in assets:
+        try:
+            # Build feature matrix specifically for this ticker
+            X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker, denoise=True)
+            
+            is_mask = idx.year < start_yr
+            oos_mask = idx.year >= start_yr
+            
+            # Train model only on In-Sample data
+            engine = MomentumEngine(c_param=700.0, degree=3)
+            engine.train(X[is_mask], y[is_mask])
+            
+            # Generate Out-of-Sample predictions
+            preds = engine.predict_series(X[oos_mask])
+            all_preds[ticker] = pd.Series(preds, index=idx[oos_mask])
+        except Exception as e:
+            st.warning(f"Skipping {ticker} due to error: {e}")
+
+    # Combine all predictions into one table [Date x Ticker]
+    pred_df = pd.DataFrame(all_preds).dropna()
+    oos_idx = pred_df.index
+    
+    # --- Step 2: Multi-Asset Backtest Loop ---
+    equity = 100.0
+    current_asset = "CASH"
+    strat_rets, asset_picks, real_view = [], [], []
+
     for i in range(len(oos_idx)):
-        new_signal = raw_signal[i]
-        asset_r = oos_gld_rets[i]
-        cash_r = oos_cash_rets[i]
-        # Signal flip — deduct one-way transaction cost
-        if new_signal != current_signal:
+        date = oos_idx[i]
+        daily_preds = pred_df.iloc[i]
+        
+        # Identify the ticker with the highest predicted return
+        best_ticker = daily_preds.idxmax()
+        best_val = daily_preds.max()
+
+        # Decision: Pick the best ETF if its prediction is > 0, else CASH
+        new_asset = best_ticker if best_val > 0 else "CASH"
+
+        # Apply transaction costs on a switch
+        if new_asset != current_asset:
             equity *= (1 - t_cost_pct)
-            current_signal = new_signal
-        if current_signal == 1:
-            if not in_pos:
-                in_pos = True
-                peak = equity # reset peak on fresh entry
-            equity *= (1 + asset_r)
-            peak = max(peak, equity)
-            # 10% Trailing Stop-Loss
-            if (equity / peak - 1) < -0.10:
-                in_pos = False
-                current_signal = 0
-                equity *= (1 - t_cost_pct) # exit cost on stop
-                strat_rets.append(cash_r)
-                realised_view.append(cash_r)
-                asset_names.append("CASH (Stop)")
-            else:
-                strat_rets.append(asset_r)
-                realised_view.append(asset_r)
-                asset_names.append("GLD")
+            current_asset = new_asset
+
+        # Calculate daily return
+        if current_asset == "CASH":
+            day_ret = DAILY_SOFR
         else:
-            in_pos = False
-            equity *= (1 + cash_r)
-            strat_rets.append(cash_r)
-            realised_view.append(cash_r)
-            asset_names.append("CASH")
-    # -------------------------------------------------------------------
-    # STEP 5: Assemble OOS DataFrame
-    # -------------------------------------------------------------------
-    oos_df = raw_df.loc[oos_idx].copy()
+            # Ensure return column exists, otherwise compute it
+            ret_col = f"{current_asset}_Ret"
+            if ret_col in raw_df.columns:
+                day_ret = raw_df.loc[date, ret_col]
+            else:
+                day_ret = raw_df[current_asset].pct_change().loc[date]
+        
+        equity *= (1 + day_ret)
+        strat_rets.append(day_ret)
+        asset_picks.append(current_asset)
+        real_view.append(day_ret)
+
+    # --- Step 3: Assembly ---
+    oos_df = pd.DataFrame(index=oos_idx)
     oos_df["Strategy_Ret"] = strat_rets
-    oos_df["Realised_Return_View"] = realised_view
-    oos_df["Allocated_Asset"] = asset_names
-    oos_df["SVR_Predicted"] = svr_preds
-    oos_df["GLD_Ret"] = oos_gld_rets
-    oos_df["Strategy_Path"] = (1 + oos_df["Strategy_Ret"]).cumprod() * 100
-    oos_df["GLD_Benchmark"] = (1 + oos_df["GLD_Ret"]).cumprod() * 100
-    # Benchmark returns for SPY and AGG
-    for col in ["SPY", "AGG"]:
-        if col in raw_df.columns:
-            ret = raw_df[col].pct_change().loc[oos_idx].fillna(0)
-            oos_df[f"{col}_Benchmark"] = (1 + ret).cumprod() * 100
+    oos_df["Allocated_Asset"] = asset_picks
+    oos_df["Strategy_Path"] = (pd.Series(strat_rets).add(1).cumprod() * 100).values
+    oos_df["SVR_Predicted"] = pred_df.max(axis=1).values
+    oos_df["Realised_Return_View"] = real_view
+    
+    # Benchmarks
+    oos_df["GLD_Benchmark"] = (raw_df.loc[oos_idx, "GLD"].pct_change().add(1).cumprod() * 100).values
+    
     return oos_df
 # ---------------------------------------------------------------------------
 # 5. UI CONFIGURATION
