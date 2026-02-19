@@ -135,7 +135,7 @@ with st.sidebar:
     if st.button("🔄 Force Data Refresh"): st.cache_data.clear(); st.rerun()
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Model Logic", ["Option A (Pure SVR)", "Option B (SVR + PPO)"])
-    costs = st.number_input("T-Costs (bps)", 0, 50, 5)
+    costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
 output = run_professional_backtest(s_yr, opt, costs)
 
