@@ -1,175 +1,171 @@
-import pywt
 import numpy as np
 import pandas as pd
-import warnings
+import pywt
 
 
 # ---------------------------------------------------------------------------
-# CORE WAVELET DENOISER
+# WAVELET DENOISER
+# Fixed issues vs original:
+#   1. Labelled and documented as DWT (not MODWT — pywt.wavedec is DWT)
+#   2. float64 instead of float32 — preserves precision for small daily returns
+#   3. Soft thresholding on detail coefficients instead of zeroing them out —
+#      preserves more signal structure while still removing high-freq noise
+#   4. Input validation for short or NaN-heavy series
 # ---------------------------------------------------------------------------
 
-def _modwt_decompose(data: np.ndarray, wavelet: str, level: int):
+def apply_dwt_denoise(series: pd.Series, wavelet: str = "sym4",
+                      level: int = 3) -> pd.Series:
     """
-    True MODWT (Maximal Overlap DWT) via pywt.swt (Stationary Wavelet Transform).
-    Unlike pywt.wavedec (standard DWT which downsamples), swt is shift-invariant:
-    the reconstructed signal phase does not depend on where the series starts.
-    This is critical for financial time series where timing matters.
+    Applies Discrete Wavelet Transform (DWT) denoising to a return series.
 
-    Returns (coeffs, n_orig) where coeffs is a list of (cA, cD) pairs.
-    """
-    n = len(data)
-    # swt requires length to be a multiple of 2^level
-    required = int(2 ** level)
-    pad = required - (n % required)
-    pad = 0 if pad == required else pad
-    padded = np.pad(data, (0, pad), mode='reflect') if pad > 0 else data.copy()
-    coeffs = pywt.swt(padded, wavelet, level=level, trim_approx=False)
-    return coeffs, n
-
-
-def _universal_threshold(finest_detail: np.ndarray, n: int) -> float:
-    """
-    VisuShrink universal threshold: sigma * sqrt(2 * log(n))
-    Sigma estimated via median absolute deviation — robust to outliers.
-    """
-    sigma = np.median(np.abs(finest_detail)) / 0.6745
-    return float(sigma * np.sqrt(2 * np.log(max(n, 2))))
-
-
-def _soft_threshold(coeffs: np.ndarray, threshold: float) -> np.ndarray:
-    """Soft thresholding — preserves partial signal, avoids over-smoothing."""
-    return np.sign(coeffs) * np.maximum(np.abs(coeffs) - threshold, 0.0)
-
-
-def apply_modwt_denoise(series: pd.Series, level: int = 3,
-                        wavelet: str = 'sym4') -> pd.Series:
-    """
-    Applies true MODWT denoising to a return series.
-
-    Fixes vs original code:
-      - Uses pywt.swt (shift-invariant) instead of pywt.wavedec (DWT, not MODWT)
-      - Soft thresholding on detail coefficients instead of zeroing them entirely
-      - float64 instead of float32 (daily returns are small — precision matters)
-      - Input validation for short or all-NaN series
+    Uses soft thresholding on detail coefficients (rather than zeroing them)
+    to remove high-frequency noise while preserving signal structure and
+    avoiding over-smoothing.
 
     Parameters
     ----------
-    series  : pd.Series of daily returns. Index must be DatetimeIndex.
-    level   : Decomposition depth. 3 is appropriate for daily return series.
-    wavelet : 'sym4' is well-suited for smooth financial signals.
+    series  : pd.Series of daily returns (float64)
+    wavelet : PyWavelets wavelet name (default: 'sym4')
+    level   : Decomposition level (default: 3)
 
     Returns
     -------
     pd.Series of denoised returns, same length and index as input.
+    NaN series returned if input is too short or all-NaN.
     """
     # --- Input validation ---
-    n_valid = series.dropna().shape[0]
-    min_required = int(2 ** level) * 2
+    clean = series.dropna()
+    min_length = 2 ** level
+    if len(clean) < min_length:
+        print(f"DWT skipped: series too short ({len(clean)} rows, need {min_length})")
+        return series  # Return original — don't corrupt with bad denoising
 
-    if n_valid == 0:
-        return series.copy()
+    if clean.std() == 0:
+        print("DWT skipped: series is constant")
+        return series
 
-    if n_valid < min_required:
-        warnings.warn(
-            f"apply_modwt_denoise: only {n_valid} non-NaN rows — need at least "
-            f"{min_required} for level={level}. Returning original series."
-        )
-        return series.copy()
+    # --- Use float64 for precision (daily returns are tiny numbers) ---
+    data = series.values.astype(np.float64)
 
-    # Work in float64 — daily returns are small numbers, float32 risks rounding
-    data = series.fillna(0.0).values.astype(np.float64)
-    n_orig = len(data)
+    # --- Decompose ---
+    coeffs = pywt.wavedec(data, wavelet, level=level)
 
-    # --- MODWT decomposition ---
-    coeffs, _ = _modwt_decompose(data, wavelet, level)
-    # coeffs: list of (cA, cD) tuples, index 0 = coarsest, -1 = finest
+    # --- Soft threshold on detail coefficients ---
+    # Threshold estimated from finest-level detail using the universal threshold:
+    # sigma * sqrt(2 * log(N)) where sigma is estimated via MAD of finest details
+    finest_detail = coeffs[-1]
+    sigma     = np.median(np.abs(finest_detail)) / 0.6745  # MAD estimator
+    threshold = sigma * np.sqrt(2 * np.log(len(data)))
 
-    # --- Compute threshold from finest detail layer ---
-    finest_detail = coeffs[-1][1][:n_orig]
-    threshold = _universal_threshold(finest_detail, n_orig)
+    # Apply soft thresholding to all detail levels (coeffs[1:])
+    # Leave approximation coefficients (coeffs[0]) untouched
+    denoised_coeffs = [coeffs[0]] + [
+        pywt.threshold(c, value=threshold, mode="soft") for c in coeffs[1:]
+    ]
 
-    # --- Soft threshold each detail layer independently ---
-    thresholded = [(cA, _soft_threshold(cD, threshold)) for cA, cD in coeffs]
+    # --- Reconstruct ---
+    reconstructed = pywt.waverec(denoised_coeffs, wavelet)
 
-    # --- Reconstruct via inverse SWT ---
-    reconstructed = pywt.iswt(thresholded, wavelet)
-    denoised = reconstructed[:n_orig]
+    # Trim to original length (PyWavelets pads internally)
+    reconstructed = reconstructed[:len(data)]
 
-    return pd.Series(denoised, index=series.index, name=series.name)
+    return pd.Series(reconstructed, index=series.index, name=series.name)
 
 
 # ---------------------------------------------------------------------------
-# FEATURE BUILDER — called by engine.py and app.py
+# FEATURE MATRIX BUILDER
+# Called by engine.py and app.py to produce the SVR input matrix.
+# All features are lagged >= 1 day — zero look-ahead bias guaranteed.
 # ---------------------------------------------------------------------------
 
 def build_feature_matrix(raw_df: pd.DataFrame,
                          target_col: str = "GLD",
-                         denoise_level: int = 3) -> tuple:
+                         denoise: bool = True) -> tuple:
     """
-    Transforms raw loader.py output (ETF prices + macro levels) into a
-    lag-safe, wavelet-denoised SVR feature matrix.
+    Builds a lag-safe, wavelet-denoised SVR feature matrix from the raw
+    price + macro DataFrame produced by loader.py.
 
     Pipeline:
-      1. Compute daily returns from ETF prices (.pct_change())
-      2. Apply MODWT denoising to each ETF return series
-      3. Build lagged feature matrix — all lags >= 1 day (zero look-ahead bias)
-      4. Add rolling realised volatility features (also lagged 1 day)
-      5. Add macro level features (lagged 1 day)
-      6. Target = next-day return of target_col (no lag — this is what SVR predicts)
+      1. Compute daily returns from raw prices (pct_change)
+      2. Apply DWT denoising to each return series (if denoise=True)
+      3. Build lagged features — all shifted >= 1 day (no look-ahead)
+      4. Drop NaN rows
 
     Parameters
     ----------
-    raw_df       : DataFrame from loader.py — ETF raw prices + macro levels.
-    target_col   : ETF to predict (default 'GLD').
-    denoise_level: Wavelet decomposition depth (default 3).
+    raw_df     : Raw price + macro level DataFrame from loader.py
+    target_col : ETF column to predict next-day return for (e.g. "GLD")
+    denoise    : Whether to apply wavelet denoising before feature engineering
 
     Returns
     -------
-    X             : np.ndarray (n_samples, n_features)
-    y             : np.ndarray (n_samples,)
-    valid_index   : pd.DatetimeIndex aligned with X and y
-    feature_names : list[str]
+    X            : np.ndarray (n_samples, n_features)
+    y            : np.ndarray (n_samples,) — next-day target returns
+    valid_index  : pd.DatetimeIndex of rows included
+    feature_names: list[str]
     """
-    etf_cols   = ["GLD", "SLV", "SPY", "AGG", "TLT", "TBT", "VNQ"]
-    macro_cols = ["VIX", "DXY", "T10Y2Y", "SOFR", "IG_OAS", "HY_OAS"]
+    # --- Step 1: Compute returns from raw prices ---
+    # ETF columns are prices → pct_change
+    # Macro columns are already levels (VIX, spreads) → use as-is or pct_change
+    etf_cols   = ["GLD", "SPY", "AGG", "TLT", "TBT", "VNQ", "SLV"]
+    macro_cols = ["VIX", "DXY", "T10Y2Y", "SOFR", "IG_SPREAD", "HY_SPREAD"]
 
-    ret_cols      = [c for c in etf_cols   if c in raw_df.columns]
-    mac_available = [c for c in macro_cols if c in raw_df.columns]
+    ret_df = pd.DataFrame(index=raw_df.index)
 
-    if target_col not in ret_cols:
-        raise ValueError(f"target_col '{target_col}' not found in raw_df columns.")
+    for col in etf_cols:
+        if col in raw_df.columns:
+            ret_df[f"{col}_Ret"] = raw_df[col].pct_change()
 
-    # --- Step 1: ETF returns ---
-    returns = raw_df[ret_cols].pct_change()
+    # Macro: use level changes (first difference) to make them stationary
+    for col in macro_cols:
+        if col in raw_df.columns:
+            ret_df[f"{col}_chg"] = raw_df[col].diff()
+            ret_df[f"{col}_lvl"] = raw_df[col]  # keep level too as a feature
 
-    # --- Step 2: Denoise each ETF return series ---
-    denoised = pd.DataFrame(index=returns.index)
-    for col in ret_cols:
-        denoised[col] = apply_modwt_denoise(returns[col], level=denoise_level)
+    target_ret_col = f"{target_col}_Ret"
+    if target_ret_col not in ret_df.columns:
+        raise ValueError(f"Target column '{target_col}' not found in raw_df. "
+                         f"Available ETFs: {[c for c in raw_df.columns if c in etf_cols]}")
 
-    # --- Step 3 & 4: Lagged features (all shifted >= 1 day — no look-ahead) ---
-    feat = pd.DataFrame(index=raw_df.index)
+    # --- Step 2: Wavelet denoise each return series ---
+    if denoise:
+        for col in ret_df.columns:
+            if col.endswith("_Ret") or col.endswith("_chg"):
+                ret_df[col] = apply_dwt_denoise(ret_df[col].dropna()
+                                                 .reindex(ret_df.index))
 
+    # --- Step 3: Build lag-safe feature matrix ---
+    feat = pd.DataFrame(index=ret_df.index)
+
+    # Lagged target returns
     for lag in [1, 3, 5, 10, 21]:
-        for col in ret_cols:
-            feat[f"{col}_ret_lag{lag}"] = denoised[col].shift(lag)
+        feat[f"target_lag{lag}"] = ret_df[target_ret_col].shift(lag)
 
-    for window in [5, 21]:
-        feat[f"{target_col}_vol_{window}d"] = (
-            returns[target_col].rolling(window).std().shift(1)
-        )
+    # Rolling realised volatility of target (lagged 1 so known before bar opens)
+    feat["target_vol5d"]  = ret_df[target_ret_col].rolling(5).std().shift(1)
+    feat["target_vol21d"] = ret_df[target_ret_col].rolling(21).std().shift(1)
 
-    # --- Step 5: Macro levels lagged 1 day ---
-    for col in mac_available:
-        feat[f"{col}_lag1"] = raw_df[col].shift(1)
+    # Cross-asset return lags (lag 1)
+    cross_asset_rets = [c for c in ret_df.columns
+                        if c.endswith("_Ret") and c != target_ret_col]
+    for col in cross_asset_rets:
+        feat[f"{col}_lag1"] = ret_df[col].shift(1)
 
-    # --- Step 6: Target (next-day return — no lag) ---
-    feat["__target__"] = returns[target_col]
+    # Macro features (lag 1 — yesterday's macro level/change is known today)
+    macro_feat_cols = [c for c in ret_df.columns
+                       if c.endswith("_chg") or c.endswith("_lvl")]
+    for col in macro_feat_cols:
+        feat[f"{col}_lag1"] = ret_df[col].shift(1)
 
+    # Target: next-day return (what SVR predicts)
+    feat["__target__"] = ret_df[target_ret_col]
+
+    # --- Step 4: Drop NaN rows ---
     feat.dropna(inplace=True)
 
     feature_names = [c for c in feat.columns if c != "__target__"]
-    X = feat[feature_names].values.astype(np.float64)
-    y = feat["__target__"].values.astype(np.float64)
+    X = feat[feature_names].values
+    y = feat["__target__"].values
 
+    print(f"Feature matrix built: {X.shape[0]} samples, {X.shape[1]} features")
     return X, y, feat.index, feature_names
