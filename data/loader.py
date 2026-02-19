@@ -101,7 +101,8 @@ def load_raw_data() -> pd.DataFrame:
             
     return df.dropna()
     def load_raw_data():
-    """Wrapper function to satisfy app.py import requirements"""
+    def load_raw_data():
+        """Wrapper function...""" # <--- FIXED: Indented
     # Use secrets for the API key if on Streamlit Cloud
     try:
         fred_key = st.secrets["FRED_API_KEY"]
