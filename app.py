@@ -144,15 +144,21 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 # 5. EXECUTION & DISPLAY
 # ---------------------------------------------------------------------------
-# Run the heavy computation
+# ---------------------------------------------------------------------------
+# 5. EXECUTION & DISPLAY
+# ---------------------------------------------------------------------------
 data, raw_full = run_backtest(start_year, model_option, t_costs)
 
-# Display data freshness
-if not raw_full.empty:
-    last_date = raw_full.index.max().strftime('%Y-%m-%d')
-    st.sidebar.caption(f"Last data point: {last_date}")
+# 1. CHECK IF DATA IS EMPTY BEFORE PROCEEDING
+if data.empty:
+    st.error("📉 The backtest produced no results. Check your 'Start Year' and data sync.")
+    st.stop()  # This prevents the index error below
 
-# Key Performance Indicators
+# Last Sync Display (Only if data exists)
+last_date = raw_full.index.max().strftime('%Y-%m-%d')
+st.sidebar.caption(f"Last data point: {last_date}")
+
+# 2. METRICS (Now safe to calculate)
 m1, m2, m3, m4 = st.columns(4)
 ann_ret = (data["Strategy_Path"].iloc[-1] / 100) ** (252 / len(data)) - 1
 hit_ratio = (data.tail(15)["SVR_Predicted"].gt(0) == data.tail(15)["Realised_Return"].gt(0)).mean()
