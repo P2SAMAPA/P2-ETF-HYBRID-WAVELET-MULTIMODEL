@@ -323,7 +323,7 @@ if output:
         "Option H": "**Wavelet-SVR-BSTS:** Triple ensemble. Denoises (Wavelet), Predicts (SVR), and Confirms trend (Bayesian).",
         "Option I": "**Wavelet-CNN-LSTM:** Deep spatial-temporal extraction on denoised price signals via 1D-CNN and LSTM layers.",
         "Option J": "**Wavelet-SVR-CNN-LSTM:** SVR establishes a baseline trend, while a CNN-LSTM residual model captures complex volatility spikes.",
-        "Option K": "**Parallel-Dual-Stream:** Dedicated neural pathways for Price Action and Macro Risk (HY Spreads/VIX) to prevent signal smearing."
+        "Option K": "**Parallel-Dual-Stream:** Dedicated neural pathways for Price Action and Macro Risk (HY Spreads/VIX) to prevent signal smearing.",
     }
     
     active_logic = next((desc for key, desc in methods.items() if key in opt), "Ensemble Engine Execution")
