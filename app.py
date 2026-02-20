@@ -125,10 +125,17 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     while next_mkt.weekday() >= 5:
         next_mkt += timedelta(days=1)
 
+    # Calculate Confidence: How much higher is the signal than the threshold?
+    last_preds = pred_df.iloc[-1]
+    best_signal = last_preds.max()
+    # Normalize: If signal is 2x the threshold, we call it 100% confidence
+    confidence_val = min(1.0, best_signal / (threshold * 2)) if threshold > 0 else 0.85
+
     return {
         "df": res,
-        "audit": pd.DataFrame({"Allocation": asset_history, "Daily_Return": strat_rets}, index=oos_idx).tail(15).sort_index(ascending=False),
+        "audit": pd.DataFrame({"Allocation": asset_history, "Daily_Return": strat_rets}, index=oos_idx), # Changed: Pass full audit for UI filtering
         "target": asset_history[-1],
+        "confidence": confidence_val,
         "next_date": next_mkt.strftime('%A, %b %d, %Y')
     }
 
