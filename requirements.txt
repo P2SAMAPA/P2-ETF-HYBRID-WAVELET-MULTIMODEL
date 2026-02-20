@@ -12,3 +12,4 @@ pandas-market-calendars
 huggingface_hub
 pyarrow
 plotly
+hmmlearn
