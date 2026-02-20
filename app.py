@@ -113,26 +113,26 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     while next_mkt.weekday() >= 5:
         next_mkt += timedelta(days=1)
 
-   # Z-Score Conviction: Measures how many standard deviations the winner is above the rest
+    # Z-Score Conviction
     last_preds = pred_df.iloc[-1]
-    
     if last_preds.std() > 0:
-        # Calculate how far the best signal is from the average of all signals
         z_score = (last_preds.max() - last_preds.mean()) / last_preds.std()
-        
-        # Map a Z-score of 1.0 (Average) to 50% and 2.5 (Outlier) to 95%
         confidence_val = 0.5 + (z_score * 0.18) 
     else:
         confidence_val = 0.50
-        
-    # Final Clamp: Ensure it stays within a realistic visual range (40% to 98%)
     confidence_val = max(0.40, min(0.98, confidence_val))
+
+    # Win/Loss Ratio for Kelly
+    pos_rets = [r for r in strat_rets if r > 0]
+    neg_rets = [abs(r) for r in strat_rets if r < 0]
+    win_loss_ratio = (np.mean(pos_rets) / np.mean(neg_rets)) if (pos_rets and neg_rets) else 1.0
 
     return {
         "df": res,
         "audit": pd.DataFrame({"Allocation": asset_history, "Daily_Return": strat_rets}, index=oos_idx),
         "target": asset_history[-1],
         "confidence": confidence_val,
+        "win_loss_ratio": win_loss_ratio,
         "next_date": next_mkt.strftime('%A, %b %d, %Y')
     }
 
@@ -181,7 +181,7 @@ if output:
     """, unsafe_allow_html=True)
 
     # ROW 2: PERFORMANCE & RISK METRICS
-    m1, m2, m3, m4, m5 = st.columns(5)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     
     excess = data["Strategy_Ret"] - data["RF"]
     ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
@@ -195,11 +195,26 @@ if output:
     audit_data.index = audit_data.index.date
     hit_ratio_sync = (audit_data["Daily_Return"] > 0).sum() / len(audit_data) if len(audit_data) > 0 else 0
 
+    # Kelly Calculation
+    p = hit_ratio_sync
+    b = output["win_loss_ratio"]
+    kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
+    safe_kelly = max(0, min(1.0, kelly_f * 0.5))
+    
+    # Arrow Logic
+    if safe_kelly > 0.60:
+        k_arrow, k_col = "▲", "normal"
+    elif safe_kelly < 0.30:
+        k_arrow, k_col = "▼", "inverse"
+    else:
+        k_arrow, k_col = "▶", "off"
+
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
     m3.metric("Max Drawdown (P-T)", f"{max_dd:.2%}")
     m4.metric("Max DD (Daily)", f"{max_daily_loss:.2%}", help=f"Occurred on {worst_day_date}")
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
+    m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=f"{k_arrow} Edge", delta_color=k_col)
 
     # ROW 3: EQUITY CHART
     st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance: Strategy vs. SPY Benchmark</h3>", unsafe_allow_html=True)
@@ -231,7 +246,7 @@ if output:
         **Risk Controls:**
         - **Model Selection:** {opt} manages churn based on prediction conviction.
         - **Liquidity Buffer:** 'CASH' positions yield the daily **3-Month T-Bill** rate.
-        - **Hurdle Rate:** Sharpe Ratio is calculated net of the Risk-Free Rate (RF).
+        - **Kelly Sizing:** Suggests capital allocation based on the 15-day Edge Profile.
         
         **System Integrity:**
         - **Feature Space:** Aggregated macro signals and ETF returns.
