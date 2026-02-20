@@ -255,7 +255,7 @@ if output:
     # ========================================================
     # 📈 INSERT THE GRAPH CODE BELOW THIS LINE
     # ========================================================
-   # --- PERFORMANCE GRAPH ---
+    # --- PERFORMANCE GRAPH ---
     st.markdown("---")
     st.subheader("Performance Comparison (Base 100)")
 
