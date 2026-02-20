@@ -164,11 +164,24 @@ output = run_professional_backtest(s_yr, opt, costs)
 if output:
     data = output["df"]
     
+   
     # ROW 1: PRIMARY TARGET SIGNAL
+    conf_color = "#2e7d32" if output['confidence'] > 0.7 else "#f57c00"
+    
     st.markdown(f"""
-        <div style="background-color: #f1f8e9; padding: 35px; border-radius: 12px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
-            <p style="margin:0; color: #2e7d32; font-size: 16px; text-transform: uppercase; letter-spacing: 2px; font-weight: 700;">Target Allocation for Market Open: {output['next_date']}</p>
-            <h1 style="margin:10px 0; font-size: 90px; color: #1b5e20; font-family: 'Courier New', monospace; font-weight: 900;">{output['target']}</h1>
+        <div style="background-color: #f1f8e9; padding: 30px; border-radius: 12px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
+            <p style="margin:0; color: #2e7d32; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; font-weight: 700;">
+                Target Allocation for {output['next_date']}
+            </p>
+            <h1 style="margin:5px 0; font-size: 100px; color: #1b5e20; font-family: 'Courier New', monospace; font-weight: 900;">
+                {output['target']}
+            </h1>
+            <div style="width: 200px; margin: 0 auto;">
+                <p style="margin:0; font-size: 12px; color: {conf_color}; font-weight: bold;">SIGNAL CONVICTION: {output['confidence']:.0%}</p>
+                <div style="background-color: #e0e0e0; border-radius: 10px; height: 8px; width: 100%;">
+                    <div style="background-color: {conf_color}; height: 8px; width: {output['confidence']*100}%; border-radius: 10px;"></div>
+                </div>
+            </div>
         </div>
     """, unsafe_allow_html=True)
 
