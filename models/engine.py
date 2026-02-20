@@ -6,10 +6,6 @@ from sklearn.pipeline import Pipeline
 import joblib
 import os
 
-# NEW: Import for Deep Learning Engines
-import tensorflow as tf
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Conv1D, LSTM, Dense, Concatenate, Dropout, Flatten
 
 # ---------------------------------------------------------------------------
 # DEEP LEARNING ENGINES (I, J, K)
@@ -28,6 +24,11 @@ class DeepHybridEngine:
         self.lookback = lookback
         self.model = None
         self.is_trained = False
+        # NEW: Import for Deep Learning Engines
+        import tensorflow as tf
+        from tensorflow.keras.models import Model
+        from tensorflow.keras.layers import Input, Conv1D, LSTM, Dense, Concatenate, Dropout, Flatten
+
 
     def _build_parallel_model(self, n_price_feats, n_macro_feats):
         """Architecture for Option K: Dual-Input Functional API"""
