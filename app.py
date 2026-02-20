@@ -243,8 +243,12 @@ if output:
 
     col_left, col_right = st.columns([1.2, 1])
     
+   # --- FIXED LAYOUT FOR AUDIT AND METHODOLOGY ---
+    col_left, col_right = st.columns([1.2, 1])
+    
     with col_left:
         st.subheader("📋 Audit Trail")
+        # Ensure these lines are indented exactly 8 spaces from the margin
         audit_display = output["audit"].tail(20).copy()
         audit_display.index = audit_display.index.strftime('%Y-%m-%d')
         st.dataframe(
@@ -257,6 +261,7 @@ if output:
 
     with col_right:
         st.subheader("🔬 Methodology & Engine Logic")
+        # Logic description mapping
         if "Option A" in opt:
             logic_desc = "Standard non-linear SVR. Focuses on raw point-prediction for maximum market participation."
         elif "Option B" in opt:
@@ -273,6 +278,8 @@ if output:
             logic_desc = "Bayesian Structural Trend Selection. Uses BSTS to decompose price action into trend and noise, selecting assets with the highest 'Structural' probability."
         elif "Option H" in opt:
             logic_desc = "Wavelet-SVR-BSTS. SVR identifies the target, while a Bayesian Filter confirms if the trend is statistically significant (Confidence > 65%) before entry."
+        else:
+            logic_desc = "Ensemble logic execution."
 
         st.markdown(f"""
         **Architecture:** Multi-Engine Ensemble (Wavelet + SVR + HMM/BSTS)
