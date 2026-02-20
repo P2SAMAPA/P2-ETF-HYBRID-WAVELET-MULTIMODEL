@@ -113,20 +113,20 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     while next_mkt.weekday() >= 5:
         next_mkt += timedelta(days=1)
 
-   # Universal Conviction: Compare the BEST signal to the AVERAGE of all signals
+   # Z-Score Conviction: Measures how many standard deviations the winner is above the rest
     last_preds = pred_df.iloc[-1]
-    best_signal = last_preds.max()
-    avg_signal = last_preds.mean()
     
-    # How much better is the best asset than the average of the others?
-    # This creates a "Spread." If the spread is large, conviction is high.
-    spread = abs(best_signal - avg_signal)
-    
-    # We calibrate the spread against a 2% volatility target
-    confidence_val = min(1.0, spread / 0.02)
-    
-    # Final clamping to ensure visual movement
-    confidence_val = max(0.38, min(0.96, confidence_val))
+    if last_preds.std() > 0:
+        # Calculate how far the best signal is from the average of all signals
+        z_score = (last_preds.max() - last_preds.mean()) / last_preds.std()
+        
+        # Map a Z-score of 1.0 (Average) to 50% and 2.5 (Outlier) to 95%
+        confidence_val = 0.5 + (z_score * 0.18) 
+    else:
+        confidence_val = 0.50
+        
+    # Final Clamp: Ensure it stays within a realistic visual range (40% to 98%)
+    confidence_val = max(0.40, min(0.98, confidence_val))
 
     return {
         "df": res,
