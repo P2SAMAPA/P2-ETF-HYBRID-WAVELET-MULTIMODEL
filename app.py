@@ -238,13 +238,7 @@ if output:
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
     m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=f"{k_arrow} {win_loss_ratio:.2f} W/L", delta_color=k_col)
 
-    m1.metric("Annualized Return", f"{ann_ret:.2%}")
-    m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-    m3.metric("Max Drawdown (P-T)", f"{data['Drawdown'].min():.2%}")
-    m4.metric("Max DD (Daily)", f"{data['Strategy_Ret'].min():.2%}")
-    m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
-    m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=f"{k_arrow} {win_loss_ratio:.2f} W/L", delta_color=k_col)
-
+  
    # ROW 3: EQUITY CHART
     st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance</h3>", unsafe_allow_html=True)
     fig = go.Figure()
