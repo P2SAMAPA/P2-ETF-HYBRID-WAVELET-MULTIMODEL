@@ -233,17 +233,12 @@ if output:
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
     m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=f"{k_arrow} {win_loss_ratio:.2f} W/L", delta_color=k_col)
 
-    # ROW 3: EQUITY CHART
+   # ROW 3: EQUITY CHART
     st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance</h3>", unsafe_allow_html=True)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=data.index, y=data["Equity"], name="Model Strategy", line=dict(color='#1a73e8', width=3)))
     fig.add_trace(go.Scatter(x=data.index, y=data["SPY"], name="SPY", line=dict(color='#9aa0a6', dash='dot')))
     fig.update_layout(template="plotly_white", height=480, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified")
-    st.plotly_chart(fig, use_container_width=True)
-
-    col_left, col_right = st.columns([1.2, 1])
-    
- fig.update_layout(template="plotly_white", height=480, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
     # --- FINAL LAYOUT SECTION ---
@@ -252,8 +247,8 @@ if output:
     with col_left:
         st.subheader("📋 Audit Trail")
         # FORCE REFRESH: Capture the absolute tail of the processed audit data
-        # Using 25 rows to ensure we see the full week including Feb 19/20
         audit_display = output["audit"].copy()
+        # Convert index to string to prevent Streamlit from caching old date formats
         audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
         
         st.dataframe(
