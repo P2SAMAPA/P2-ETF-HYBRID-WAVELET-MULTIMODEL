@@ -13,3 +13,5 @@ huggingface_hub
 pyarrow
 plotly
 hmmlearn
+tensorflow==2.15.0
+joblib
