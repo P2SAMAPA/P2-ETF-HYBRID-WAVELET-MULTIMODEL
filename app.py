@@ -256,49 +256,48 @@ if output:
     m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=f"{k_arrow} Edge", delta_color=k_col)
 
     # ROW 3: EQUITY CHART
-    st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance: Strategy vs. SPY Benchmark</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance</h3>", unsafe_allow_html=True)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=data.index, y=data["Equity"], name="Model Strategy", line=dict(color='#1a73e8', width=3)))
-    fig.add_trace(go.Scatter(x=data.index, y=data["SPY"], name="SPY (Re-indexed)", line=dict(color='#9aa0a6', dash='dot')))
-    fig.update_layout(template="plotly_white", height=480, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified", legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
-    st.plotly_chart(fig, use_container_width=True)
+    fig.add_trace(go.Scatter(x=data.index, y=data["SPY"], name="SPY", line=dict(color='#9aa0a6', dash='dot')))
+    fig.update_layout(template="plotly_white", height=480, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified")
+    st.plotly_chart(fig, width='stretch')
 
-    # ROW 4: AUDIT TABLE & METHODOLOGY
+    # --- UI LAYOUT FOR AUDIT AND METHODOLOGY ---
     col_left, col_right = st.columns([1.2, 1])
     
     with col_left:
-        st.subheader("📋 15-Day Strategy Audit Trail")
-        def style_returns(val):
-            color = '#1b5e20' if val > 0 else '#b71c1c' if val < 0 else '#5f6368'
-            return f'color: {color}; font-weight: bold;'
-        
+        st.subheader("📋 Audit Trail")
         st.dataframe(
-            audit_data.style.format({"Daily_Return": "{:.2%}"}).applymap(style_returns, subset=['Daily_Return']),
-            use_container_width=True, height=560
+            audit_data.style.format({"Daily_Return": "{:.2%}"}).map(
+                lambda x: f'color: {"#1b5e20" if x > 0 else "#b71c1c"}; font-weight: bold;', 
+                subset=['Daily_Return']
+            ),
+            width='stretch', height=560
         )
 
-   with col_right:
-    st.subheader("🔬 Methodology & Engine Logic")
-    
-    # Context-aware technical description
-    if "Option D" in opt:
-        logic_desc = "Hybrid Alpha-Advantage gating. SVR generates directional bias, while A2C filters exposure based on 1.5σ relative conviction."
-    elif "Option B" in opt:
-        logic_desc = "Directional SVR with PPO Stability. Uses a fixed 15bps hurdle to ensure entries occur only during high-momentum regimes."
-    elif "Option C" in opt:
-        logic_desc = "Pure Policy Gradient execution. Learns optimal asset weights by maximizing the synchronous Advantage Actor-Critic (A2C) objective function."
-    else:
-        logic_desc = "Standard non-linear SVR. Focuses on raw point-prediction for maximum market participation."
+    with col_right:
+        st.subheader("🔬 Methodology & Engine Logic")
+        
+        # Determine logic description based on selection
+        if "Option D" in opt:
+            logic_desc = "Hybrid Alpha-Advantage gating. SVR generates directional bias, while A2C filters exposure based on 0.75σ relative conviction."
+        elif "Option B" in opt:
+            logic_desc = "Directional SVR with PPO Stability. Uses a fixed 15bps hurdle to ensure entries occur only during high-momentum regimes."
+        elif "Option C" in opt:
+            logic_desc = "Pure Policy Gradient execution. Learns optimal asset weights by maximizing the synchronous Advantage Actor-Critic (A2C) objective function."
+        else:
+            logic_desc = "Standard non-linear SVR. Focuses on raw point-prediction for maximum market participation."
 
-    st.markdown(f"""
-    **Architecture:** Wavelet-denoised SVR integrated with Reinforcement Learning (RL) execution layers. 
-    
-    **Core Logic:**
-    * **Strategy:** {logic_desc}
-    * **Signal Extraction:** Dual-filter Wavelet Transform decomposes price action into high-fidelity trend components, removing intraday noise before training.
-    
-    **Risk Framework:**
-    * **Dynamic Stop-Loss:** Active 10% trailing drawdown protection calibrated to peak equity since trade inception.
-    * **Kelly Criterion:** 15-day 'Edge' profiling determines optimal capital allocation via Half-Kelly sizing ($f^*$).
-    * **Liquidity Gate:** Strategy reverts to **CASH** (3-Month T-Bill benchmark) when engine conviction falls below selection thresholds.
-    """)
+        st.markdown(f"""
+        **Architecture:** Wavelet-denoised SVR integrated with Reinforcement Learning (RL) execution layers. 
+        
+        **Core Logic:**
+        * **Strategy:** {logic_desc}
+        * **Signal Extraction:** Dual-filter Wavelet Transform removes intraday noise before training.
+        
+        **Risk Framework:**
+        * **Dynamic Stop-Loss:** Active 10% trailing drawdown protection.
+        * **Kelly Criterion:** 15-day 'Edge' profiling determines optimal capital allocation via Half-Kelly sizing.
+        * **Liquidity Gate:** Strategy reverts to **CASH** when conviction falls below $\sigma$ thresholds.
+        """)
