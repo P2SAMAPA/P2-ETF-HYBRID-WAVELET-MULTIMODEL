@@ -210,7 +210,7 @@ if output:
             return f'color: {color}; font-weight: bold;'
         
       
-    st.header("📋 15-Day Strategy Audit Trail")
+
     # Ensure this line starts at the same indentation level as st.header
     st.dataframe(
     audit_data.style.format({"Daily_Return": "{:.2%}"}).applymap(style_returns, subset=['Daily_Return']),
