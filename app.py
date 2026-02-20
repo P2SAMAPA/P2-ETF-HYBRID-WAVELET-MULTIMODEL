@@ -46,7 +46,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     is_mask_global = raw_df.index.year < start_yr
     oos_mask_global = raw_df.index.year >= start_yr
 
-    # --- REGIME ENGINE INITIALIZATION (Options E, F, G, H) ---
+    # --- REGIME ENGINE INITIALIZATION ---
     hmm_signals = {}
     if "HMM" in model_choice:
         hmm_engine = RegimeHMM(n_states=3)
@@ -65,17 +65,11 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
                 X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
                 is_mask = idx.year < start_yr
                 oos_mask = idx.year >= start_yr
-                
-                if "Option C" in model_choice:
-                    engine = A2CEngine()
-                else:
-                    engine = MomentumEngine(c_param=700.0)
-                
+                engine = A2CEngine() if "Option C" in model_choice else MomentumEngine(c_param=700.0)
                 engine.train(X[is_mask], y[is_mask])
                 preds = engine.predict_series(X[oos_mask])
                 all_preds[ticker] = pd.Series(preds, index=idx[oos_mask])
             except Exception as e:
-                print(f"Error on {ticker}: {e}")
                 continue
 
     pred_df = pd.DataFrame(all_preds).dropna() if all_preds else pd.DataFrame()
@@ -89,18 +83,16 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         threshold = 0.0
 
     oos_idx = raw_df.index[oos_mask_global]
-    equity = 100.0
-    current_asset = "CASH"
+    equity, current_asset = 100.0, "CASH"
     strat_rets, asset_history = [], []
-    peak_price_since_entry = 0.0
-    stop_triggered = False
+    peak_price_since_entry, stop_triggered = 0.0, False
 
     for date in oos_idx:
-        # --- SIGNAL ROUTING ---
+        # SIGNAL ROUTING
         if model_choice.startswith("Option E"):
             signal_asset = hmm_signals.get(date, "CASH")
         elif model_choice.startswith("Option G"):
-            signal_asset = hmm_signals.get(date, "CASH") # BSTS logic placeholder
+            signal_asset = hmm_signals.get(date, "CASH") 
         elif model_choice.startswith("Option F"):
             daily_preds = pred_df.loc[date] if date in pred_df.index else None
             hmm_gate = hmm_signals.get(date, "CASH")
@@ -119,18 +111,16 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
             else:
                 signal_asset = "CASH"
 
-        # Stop Loss Logic
+        # Stop Loss & Execution
         if current_asset != "CASH":
             current_price = raw_df.loc[date, current_asset]
             peak_price_since_entry = max(peak_price_since_entry, current_price)
-            if current_price < (peak_price_since_entry * 0.90):
-                stop_triggered = True
+            if current_price < (peak_price_since_entry * 0.90): stop_triggered = True
         
         if stop_triggered:
             new_asset = "CASH"
             if signal_asset != current_asset and signal_asset != "CASH":
-                stop_triggered = False
-                new_asset = signal_asset
+                stop_triggered, new_asset = False, signal_asset
                 peak_price_since_entry = raw_df.loc[date, new_asset] if new_asset != "CASH" else 0.0
         else:
             new_asset = signal_asset
@@ -155,23 +145,24 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     res["RF"] = (raw_df.loc[oos_idx, "TBILL_3M"] / 100) / 252
     for b in ["SPY", "AGG"]: res[b] = (raw_df.loc[oos_idx, f"{b}_Ret"].add(1).cumprod() * 100)
 
-    # Stats Pre-calc
+    # Confidence and Stats
     confidence_val = 0.70
     if not pred_df.empty:
         last_preds = pred_df.iloc[-1]
         z_score = (last_preds.max() - last_preds.mean()) / last_preds.std() if last_preds.std() > 0 else 0
         confidence_val = max(0.40, min(0.98, 0.5 + (z_score * 0.18)))
 
-    win_loss_ratio = (np.mean([r for r in strat_rets if r > 0]) / abs(np.mean([r for r in strat_rets if r < 0]))) if (any(r>0 for r in strat_rets) and any(r<0 for r in strat_rets)) else 1.0
-
     today = datetime.now()
     next_mkt = today + timedelta(days=1) if today.hour >= 16 else today
     while next_mkt.weekday() >= 5: next_mkt += timedelta(days=1)
 
     return {
-        "df": res, "audit": pd.DataFrame({"Allocation": asset_history, "Daily_Return": strat_rets}, index=oos_idx),
-        "target": asset_history[-1], "confidence": confidence_val, "win_loss_ratio": win_loss_ratio,
-        "next_date": next_mkt.strftime('%A, %b %d, %Y')
+        "df": res, 
+        "audit": pd.DataFrame({"Allocation": asset_history, "Daily_Return": strat_rets}, index=oos_idx),
+        "target": asset_history[-1], 
+        "confidence": confidence_val, 
+        "next_date": next_mkt.strftime('%A, %b %d, %Y'),
+        "strat_rets_raw": strat_rets
     }
 
 # ---------------------------------------------------------------------------
@@ -186,6 +177,7 @@ with st.sidebar:
         st.cache_data.clear()
         st.session_state.last_refresh = datetime.now().strftime("%b %d, %H:%M:%S")
         st.rerun()
+
     st.caption(f"✨ Last sync: {st.session_state.last_refresh}")
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Model Logic", [
@@ -198,6 +190,9 @@ output = run_professional_backtest(s_yr, opt, costs)
 
 if output:
     data = output["df"]
+    strat_rets = output["strat_rets_raw"]
+    
+    # ROW 1: PRIMARY TARGET SIGNAL
     conf_color = "#2e7d32" if output['confidence'] > 0.7 else "#f57c00"
     st.markdown(f"""
         <div style="background-color: #f1f8e9; padding: 30px; border-radius: 12px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
@@ -212,21 +207,23 @@ if output:
         </div>
     """, unsafe_allow_html=True)
 
-   # ROW 2: PERFORMANCE & RISK METRICS
+    # ROW 2: PERFORMANCE & RISK METRICS
     m1, m2, m3, m4, m5, m6 = st.columns(6)
+    
+    excess = data["Strategy_Ret"] - data["RF"]
+    ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
+    sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
     
     # Logic for Kelly Score & Win-Loss Arrow
     pos_rets = [r for r in strat_rets if r > 0]
     neg_rets = [abs(r) for r in strat_rets if r < 0]
     win_loss_ratio = (np.mean(pos_rets) / np.mean(neg_rets)) if (pos_rets and neg_rets) else 1.0
     
-    # Half-Kelly Calculation
     hit_ratio_sync = (pd.Series(strat_rets).tail(15) > 0).sum() / 15
     p, b = hit_ratio_sync, win_loss_ratio
     kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
     
-    # Delta Arrow Logic
     k_arrow, k_col = ("▲", "normal") if safe_kelly > 0.4 else ("▼", "inverse")
 
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
@@ -236,6 +233,7 @@ if output:
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
     m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=f"{k_arrow} {win_loss_ratio:.2f} W/L", delta_color=k_col)
 
+    # ROW 3: EQUITY CHART
     st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance</h3>", unsafe_allow_html=True)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=data.index, y=data["Equity"], name="Model Strategy", line=dict(color='#1a73e8', width=3)))
@@ -244,13 +242,11 @@ if output:
     st.plotly_chart(fig, use_container_width=True)
 
     col_left, col_right = st.columns([1.2, 1])
+    
     with col_left:
-        with col_left:
         st.subheader("📋 Audit Trail")
-        # Explicitly grabbing latest rows and forcing index to string for refresh
         audit_display = output["audit"].tail(20).copy()
         audit_display.index = audit_display.index.strftime('%Y-%m-%d')
-        
         st.dataframe(
             audit_display.style.format({"Daily_Return": "{:.2%}"}).map(
                 lambda x: f'color: {"#1b5e20" if x > 0 else "#b71c1c"}; font-weight: bold;', 
@@ -258,6 +254,7 @@ if output:
             ),
             use_container_width=True, height=560
         )
+
     with col_right:
         st.subheader("🔬 Methodology & Engine Logic")
         if "Option A" in opt:
@@ -276,3 +273,16 @@ if output:
             logic_desc = "Bayesian Structural Trend Selection. Uses BSTS to decompose price action into trend and noise, selecting assets with the highest 'Structural' probability."
         elif "Option H" in opt:
             logic_desc = "Wavelet-SVR-BSTS. SVR identifies the target, while a Bayesian Filter confirms if the trend is statistically significant (Confidence > 65%) before entry."
+
+        st.markdown(f"""
+        **Architecture:** Multi-Engine Ensemble (Wavelet + SVR + HMM/BSTS)
+        
+        **Core Logic:**
+        * **Active Strategy:** {logic_desc}
+        * **Macro Pillars:** Integrated DXY (Dollar Index), Yield Curve (T10Y2Y), and Credit Spreads (IG/HY).
+        
+        **Risk Framework:**
+        * **Trailing Stop:** 10% Drawdown hard-stop from peak equity.
+        * **Kelly Criterion:** Half-Kelly capital sizing updated on 15-day rolling windows.
+        * **Regime Gate:** Automatic CASH reversion when model confidence or macro states signal 'Systemic Risk'.
+        """)
