@@ -173,15 +173,22 @@ st.markdown("<p style='text-align: center; color: #5f6368; font-weight: 500;'>In
 
 with st.sidebar:
     st.header("Terminal Config")
+    
+    # --- CORRECTED REFRESH BUTTON ---
     if st.button("🔄 Force Data Refresh"):
-    with st.spinner("Fetching live data from Stooq, FRED, and Yahoo..."):
-        st.cache_data.clear()
-        # This tells the loader to actually run the 'sync_data' code
-        df = load_raw_data(force_sync=True) 
-        st.success("Hugging Face Dataset Updated!")
-        st.rerun()
+        with st.spinner("Fetching live data from Stooq, FRED, and Yahoo..."):
+            st.cache_data.clear()
+            # This triggers the sync logic we added to loader.py
+            try:
+                load_raw_data(force_sync=True)
+                st.success("Hugging Face Dataset Updated!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Sync failed: {e}")
 
-    st.caption(f"✨ Last sync: {st.session_state.last_refresh}")
+    st.caption(f"✨ Last sync: {st.session_state.get('last_refresh', 'N/A')}")
+    
+    # ... rest of your sidebar code (slider, radio, etc.)
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Model Logic", [
         "Option A - Wavelet-SVR", "Option B - Wavelet-SVR-PPO", "Option C - Wavelet-A2C", "Option D - Wavelet-SVR-A2C",
