@@ -71,13 +71,18 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     if pred_df.empty: return None
 
     # --- THRESHOLD LOGIC FIX ---
-    # This ensures Option D is mathematically distinct from Option A
+   # --- DYNAMIC THRESHOLD LOGIC ---
     if "Option B" in model_choice:
-        threshold = 0.0015  # Conservative (PPO)
+        threshold = 0.0015  # Fixed PPO Hurdle
     elif "Option D" in model_choice:
-        threshold = 0.0010  # Moderate (SVR-A2C Advantage)
+        # OPTION D FIX: 
+        # Instead of a fixed number, we require the best prediction 
+        # to be at least 1 Standard Deviation above the mean of all predictions.
+        # This is the 'Advantage' in A2C.
+        ticker_std = pred_df.values.std()
+        threshold = ticker_std * 1.5  # Only high-conviction signals pass
     else:
-        threshold = 0.0     # Aggressive (Pure SVR or Pure A2C)
+        threshold = 0.0    # Option A & C: Direct Action
 
     oos_idx = pred_df.index
     equity = 100.0
