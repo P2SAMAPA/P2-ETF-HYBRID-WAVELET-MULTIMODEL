@@ -79,8 +79,10 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         # Instead of a fixed number, we require the best prediction 
         # to be at least 1 Standard Deviation above the mean of all predictions.
         # This is the 'Advantage' in A2C.
+        # Reducing from 1.5 to 0.75 lowers the 'Advantage' hurdle,
+        # allowing the model to be more aggressive (higher returns).
         ticker_std = pred_df.values.std()
-        threshold = ticker_std * 1.5  # Only high-conviction signals pass
+        threshold = ticker_std * 0.75  # The "Sweet Spot" setting
     else:
         threshold = 0.0    # Option A & C: Direct Action
 
