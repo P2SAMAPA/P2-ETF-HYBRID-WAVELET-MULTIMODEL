@@ -113,14 +113,20 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     while next_mkt.weekday() >= 5:
         next_mkt += timedelta(days=1)
 
-    # Dynamic Conviction Logic
+   # Dynamic Conviction Logic - Calibrated for higher volatility
     last_preds = pred_df.iloc[-1]
     best_signal = last_preds.max()
+    
     if threshold > 0:
-        confidence_val = min(1.0, best_signal / (threshold * 2))
+        # For Option B: Measure against 3x the hurdle rate
+        confidence_val = min(1.0, best_signal / (threshold * 3))
     else:
-        confidence_val = min(1.0, abs(best_signal) / 0.01)
-    confidence_val = max(0.42, confidence_val)
+        # For Option A: Measure against a 3% expected daily move benchmark
+        # This prevents the 100% "ceiling" for standard 1-2% predictions
+        confidence_val = min(1.0, abs(best_signal) / 0.03) 
+    
+    # Lowered baseline to 35% to show more movement in the bar
+    confidence_val = max(0.35, confidence_val)
 
     return {
         "df": res,
