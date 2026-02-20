@@ -92,9 +92,12 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         daily_preds = pred_df.loc[date]
         best_ticker = daily_preds.idxmax()
         
-        # Threshold Check: If best prediction isn't high enough, go to CASH
-        signal_asset = best_ticker if daily_preds.max() > threshold else "CASH"
-        
+        # Primary Signal Generation
+        # If the SVR conviction isn't above the A2C hurdle, we sit in CASH.
+        if daily_preds.max() > threshold:
+            signal_asset = best_ticker
+        else:
+            signal_asset = "CASH"
         # Stop Loss Logic
         if current_asset != "CASH":
             current_price = raw_df.loc[date, current_asset]
