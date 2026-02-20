@@ -47,16 +47,19 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
             is_mask = idx.year < start_yr
             oos_mask = idx.year >= start_yr
             
-            # --- 1. ENGINE SELECTION LOGIC ---
+            # --- SURGICAL FIX FOR OPTION C & D SELECTION ---
             if "Option C" in model_choice:
-                # Pure A2C logic
+                from models.engine import A2CEngine
                 engine = A2CEngine()
+                engine.train(X[is_mask], y[is_mask])
+                # Ensure we return a dated Series so the UI doesn't go blank
+                preds = engine.predict_series(X[oos_mask])
+                all_preds[ticker] = pd.Series(preds, index=idx[oos_mask])
             else:
-                # Options A, B, and D use SVR as the prediction base
+                # Options A, B, and D use SVR
                 engine = MomentumEngine(c_param=700.0)
-            
-            engine.train(X[is_mask], y[is_mask])
-            all_preds[ticker] = pd.Series(engine.predict_series(X[oos_mask]), index=idx[oos_mask])
+                engine.train(X[is_mask], y[is_mask])
+                all_preds[ticker] = pd.Series(engine.predict_series(X[oos_mask]), index=idx[oos_mask])
         except: continue
 
     pred_df = pd.DataFrame(all_preds).dropna()
