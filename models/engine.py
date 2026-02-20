@@ -110,25 +110,30 @@ import numpy as np
 class A2CEngine:
     def __init__(self, learning_rate=0.01):
         self.lr = learning_rate
-        self.gamma = 0.95  # Discount factor for future rewards
-        # Simplified A2C weights for high-frequency signal processing
         self.weights = None 
 
-    def predict(self, features):
-        # A2C Advantage calculation
-        # If weights aren't initialized, we start with a neutral macro-bias
-        if self.weights is None:
-            self.weights = np.random.normal(0, 1, features.shape[1])
+    def train(self, X, y):
+        """
+        Renamed from train_step to train to match the backtest loop calling convention.
+        """
+        features = X.values if hasattr(X, 'values') else X
+        labels = y.values if hasattr(y, 'values') else y
         
-        # Calculate policy (Actor) and state-value (Critic)
-        # Higher values indicate a stronger 'Advantage' over Cash
-        advantage_scores = np.dot(features, self.weights)
-        return advantage_scores
+        if self.weights is None:
+            self.weights = np.random.normal(0, 0.1, features.shape[1])
+            
+        # Simplified Reinforcement Learning: Policy Gradient update
+        # Moves weights to favor features associated with positive returns
+        gradient = np.dot(features.T, labels)
+        self.weights += self.lr * gradient
 
-    def train_step(self, features, rewards):
-        # This simulates the synchronous update of Actor and Critic
-        # Higher rewards boost the weights of the features that led to them
-        self.weights += self.lr * np.dot(features.T, rewards)
+    def predict_series(self, X):
+        features = X.values if hasattr(X, 'values') else X
+        if self.weights is None:
+            self.weights = np.random.normal(0, 0.1, features.shape[1])
+        
+        # Calculate the 'Advantage' score
+        return np.dot(features, self.weights)
 # ---------------------------------------------------------------------------
 # PRODUCTION UTILITY
 # ---------------------------------------------------------------------------
