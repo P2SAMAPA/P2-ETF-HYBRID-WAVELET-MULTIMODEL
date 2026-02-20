@@ -257,7 +257,7 @@ if output:
     # ========================================================
     
     st.markdown("---")
-   st.subheader("Performance Comparison (Base 100)")
+    st.subheader("Performance Comparison (Base 100)")
 
 # ... (keep normalization logic from previous step)
 
