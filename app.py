@@ -34,6 +34,7 @@ st.markdown("""
 # CORE ANALYTICS ENGINE
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600)
 def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     raw_df = load_raw_data()
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
@@ -41,37 +42,42 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     
     from data.processor import build_feature_matrix
     all_preds = {}
+    
     for ticker in assets:
         try:
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             is_mask = idx.year < start_yr
             oos_mask = idx.year >= start_yr
             
-            # --- SURGICAL FIX FOR OPTION C & D SELECTION ---
+            # --- ENGINE SELECTION ---
             if "Option C" in model_choice:
-                from models.engine import A2CEngine
+                # Pure A2C logic
                 engine = A2CEngine()
-                engine.train(X[is_mask], y[is_mask])
-                # Ensure we return a dated Series so the UI doesn't go blank
-                preds = engine.predict_series(X[oos_mask])
-                all_preds[ticker] = pd.Series(preds, index=idx[oos_mask])
             else:
                 # Options A, B, and D use SVR
                 engine = MomentumEngine(c_param=700.0)
-                engine.train(X[is_mask], y[is_mask])
-                all_preds[ticker] = pd.Series(engine.predict_series(X[oos_mask]), index=idx[oos_mask])
-        except: continue
+            
+            engine.train(X[is_mask], y[is_mask])
+            
+            # Logic Fix: Ensure we always map predictions to the OOS index
+            preds = engine.predict_series(X[oos_mask])
+            all_preds[ticker] = pd.Series(preds, index=idx[oos_mask])
+            
+        except Exception as e:
+            print(f"Error on {ticker}: {e}")
+            continue
 
     pred_df = pd.DataFrame(all_preds).dropna()
     if pred_df.empty: return None
 
-  # --- SURGICAL FIX FOR OPTION D THRESHOLD ---
+    # --- THRESHOLD LOGIC FIX ---
+    # This ensures Option D is mathematically distinct from Option A
     if "Option B" in model_choice:
-        threshold = 0.0015  # Strict PPO Hurdle
+        threshold = 0.0015  # Conservative (PPO)
     elif "Option D" in model_choice:
-        threshold = 0.0005  # A2C Advantage Filter (makes D different from A)
+        threshold = 0.0005  # Moderate (SVR-A2C Advantage)
     else:
-        threshold = 0.0     # Option A and C: Direct Action
+        threshold = 0.0     # Aggressive (Pure SVR or Pure A2C)
 
     oos_idx = pred_df.index
     equity = 100.0
@@ -79,7 +85,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     strat_rets = []
     asset_history = []
     
-    # --- Peak Tracking Variables ---
     peak_price_since_entry = 0.0
     stop_triggered = False
 
@@ -87,8 +92,10 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         daily_preds = pred_df.loc[date]
         best_ticker = daily_preds.idxmax()
         
+        # Threshold Check: If best prediction isn't high enough, go to CASH
         signal_asset = best_ticker if daily_preds.max() > threshold else "CASH"
         
+        # Stop Loss Logic
         if current_asset != "CASH":
             current_price = raw_df.loc[date, current_asset]
             peak_price_since_entry = max(peak_price_since_entry, current_price)
@@ -106,6 +113,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
             if new_asset != current_asset and new_asset != "CASH":
                 peak_price_since_entry = raw_df.loc[date, new_asset]
 
+        # Trade Execution & Cost
         if new_asset != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = new_asset
@@ -116,6 +124,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         strat_rets.append(day_ret)
         asset_history.append(current_asset)
 
+    # --- ASSEMBLE RESULTS ---
     res = pd.DataFrame(index=oos_idx)
     res["Strategy_Ret"] = strat_rets
     res["Equity"] = (pd.Series(strat_rets, index=oos_idx).add(1).cumprod() * 100)
@@ -126,24 +135,19 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     for b in ["SPY", "AGG"]:
         res[b] = (raw_df.loc[oos_idx, f"{b}_Ret"].add(1).cumprod() * 100)
 
-    today = datetime.now()
-    next_mkt = today + timedelta(days=1) if today.hour >= 16 else today
-    while next_mkt.weekday() >= 5:
-        next_mkt += timedelta(days=1)
-
-    # Z-Score Conviction
+    # Confidence calculation for the UI
     last_preds = pred_df.iloc[-1]
-    if last_preds.std() > 0:
-        z_score = (last_preds.max() - last_preds.mean()) / last_preds.std()
-        confidence_val = 0.5 + (z_score * 0.18) 
-    else:
-        confidence_val = 0.50
-    confidence_val = max(0.40, min(0.98, confidence_val))
+    z_score = (last_preds.max() - last_preds.mean()) / last_preds.std() if last_preds.std() > 0 else 0
+    confidence_val = max(0.40, min(0.98, 0.5 + (z_score * 0.18)))
 
-    # Win/Loss Ratio for Kelly
+    # Win/Loss for Kelly
     pos_rets = [r for r in strat_rets if r > 0]
     neg_rets = [abs(r) for r in strat_rets if r < 0]
     win_loss_ratio = (np.mean(pos_rets) / np.mean(neg_rets)) if (pos_rets and neg_rets) else 1.0
+
+    today = datetime.now()
+    next_mkt = today + timedelta(days=1) if today.hour >= 16 else today
+    while next_mkt.weekday() >= 5: next_mkt += timedelta(days=1)
 
     return {
         "df": res,
@@ -153,7 +157,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         "win_loss_ratio": win_loss_ratio,
         "next_date": next_mkt.strftime('%A, %b %d, %Y')
     }
-
 # ---------------------------------------------------------------------------
 # TERMINAL UI RENDERING
 # ---------------------------------------------------------------------------
