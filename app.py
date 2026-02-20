@@ -140,7 +140,14 @@ st.markdown("<p style='text-align: center; color: #5f6368; font-weight: 500;'>In
 
 with st.sidebar:
     st.header("Terminal Config")
-    if st.button("🔄 Force Data Refresh"): st.cache_data.clear(); st.rerun()
+   if st.button("🔄 Force Data Refresh"):
+        st.cache_data.clear()
+        # Update the state variable before rerunning
+        st.session_state.last_refresh = datetime.now().strftime("%b %d, %H:%M:%S")
+        st.rerun()
+
+    # This line ensures the date stays visible in the sidebar
+    st.caption(f"✨ Last sync: {st.session_state.last_refresh}")
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Model Logic", ["Option A (Pure SVR)", "Option B (SVR + PPO)"])
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
