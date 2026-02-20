@@ -223,7 +223,7 @@ if output:
         </div>
     """, unsafe_allow_html=True)
 
-  # --- PERFORMANCE METRICS ---
+ # --- PERFORMANCE METRICS ---
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     
     # Calculate Stats
@@ -241,18 +241,20 @@ if output:
     kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
 
-    # --- THE CLEANEST FIX: ZERO ARROWS ---
-    k_col = "normal" if win_loss_ratio >= 1.0 else "inverse"
-    
-    # We use \u2800 (a Braille blank) to trick Streamlit into showing no arrow
-    clean_delta = f"\u2800 {win_loss_ratio:.2f} W/L"
-
+    # --- ZERO ARROW SOLUTION ---
+    # We move W/L into the label and remove delta entirely.
+    # This is the only way to guarantee 0 arrows in Streamlit.
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
     m3.metric("Max Drawdown", f"{data['Drawdown'].min():.2%}")
     m4.metric("Daily Vol", f"{data['Strategy_Ret'].std() * np.sqrt(252):.2%}")
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
-    m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=clean_delta, delta_color=k_col)
+    
+    # m6 now has no delta parameter, so no arrow can possibly render.
+    m6.metric(
+        label=f"Kelly Recco (W/L: {win_loss_ratio:.2f})", 
+        value=f"{safe_kelly:.0%}"
+    )
 
     # --- DYNAMIC METHODOLOGY SECTION ---
     st.markdown("---")
