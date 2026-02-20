@@ -5,6 +5,7 @@ import yfinance as yf
 import streamlit as st
 from fredapi import Fred
 from huggingface_hub import HfApi, hf_hub_download
+from datetime import datetime
 
 # ---------------------------------------------------------------------------
 # CONSTANTS
@@ -17,12 +18,11 @@ DATA_START   = pd.Timestamp("2008-01-01")
 ETF_TICKERS   = ["GLD", "SPY", "AGG", "TLT", "TBT", "VNQ", "SLV"]
 STOOQ_ETF_MAP = {t: f"{t}.US" for t in ETF_TICKERS}
 
-# RECTIFIED: Swapped SOFR for 3-Month T-Bill (DTB3) to get history back to 2008
 MACRO_CONFIG = {
-    "VIX":       ("VIXCLS",        "^VIX"),
-    "DXY":       ("DTWEXBGS",      "DXY"),
-    "T10Y2Y":    ("T10Y2Y",        None),
-    "TBILL_3M":  ("DTB3",          "^IRX"), 
+    "VIX":        ("VIXCLS",        "^VIX"),
+    "DXY":        ("DTWEXBGS",      "DXY"),
+    "T10Y2Y":     ("T10Y2Y",        None),
+    "TBILL_3M":   ("DTB3",          "^IRX"), 
     "IG_SPREAD": ("BAMLC0A0CM",    None),
     "HY_SPREAD": ("BAMLH0A0HYM2",  None),
 }
@@ -38,8 +38,7 @@ def _fetch_etf_stooq(tickers: list, start: pd.Timestamp) -> pd.DataFrame:
             url = f"https://stooq.com/q/d/l/?s={stooq_ticker.lower()}&i=d"
             df  = pd.read_csv(url, parse_dates=["Date"], index_col="Date")
             df.index = pd.DatetimeIndex(df.index)
-            if "Close" not in df.columns:
-                continue
+            if "Close" not in df.columns: continue
             s = df["Close"].rename(ticker)
             frames.append(s[s.index >= start])
         if not frames: return pd.DataFrame()
@@ -50,12 +49,16 @@ def _fetch_etf_stooq(tickers: list, start: pd.Timestamp) -> pd.DataFrame:
 
 def _fetch_etf_yfinance(tickers: list, start: pd.Timestamp) -> pd.DataFrame:
     try:
-        raw = yf.download(tickers, start=start, auto_adjust=False, progress=False)
-        closes = raw["Close"].copy() if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]]
-        if not isinstance(raw.columns, pd.MultiIndex):
-            closes.columns = tickers
-        closes.index = pd.DatetimeIndex(closes.index)
-        return closes[closes.index >= start].dropna(how="all")
+        # Improved yfinance download to handle multi-tickers more reliably
+        raw = yf.download(tickers, start=start, progress=False, group_by='ticker')
+        frames = []
+        for t in tickers:
+            if t in raw.columns.levels[0]:
+                frames.append(raw[t]['Close'].rename(t))
+        if not frames: return pd.DataFrame()
+        df = pd.concat(frames, axis=1)
+        df.index = pd.DatetimeIndex(df.index)
+        return df.sort_index()
     except Exception:
         return pd.DataFrame()
 
@@ -107,6 +110,7 @@ class FeatureLoader:
                 repo_id   = self.repo_id,
                 filename  = HF_FILENAME,
                 repo_type = HF_REPO_TYPE,
+                token     = self.hf_token # Added token to download if private
             )
             df = pd.read_parquet(path)
             df.index = pd.DatetimeIndex(df.index)
@@ -117,14 +121,14 @@ class FeatureLoader:
     def sync_data(self) -> str:
         today = pd.Timestamp.now().normalize()
         master_df = self.load_master()
-        # Full seed if empty or if SOFR is still present in columns
-        is_full_seed = master_df.empty or len(master_df) < 1000 or "SOFR" in master_df.columns
+        
+        is_full_seed = master_df.empty or "SOFR" in master_df.columns
 
         if not is_full_seed:
             last_date = master_df.index.max()
             if last_date >= (today - pd.Timedelta(days=1)):
                 return "Incremental Refresh: Already Up to Date"
-            start_fetch = last_date + pd.Timedelta(days=1)
+            start_fetch = last_date - pd.Timedelta(days=1) # Slight overlap to ensure continuity
         else:
             start_fetch = DATA_START
 
@@ -133,18 +137,19 @@ class FeatureLoader:
             if etf_df.empty:
                 etf_df = _fetch_etf_yfinance(ETF_TICKERS, start_fetch)
 
-            if etf_df.empty:
-                return "Sync Failed: Could not fetch ETF data"
+            if etf_df.empty: return "Sync Failed: ETF Source unavailable"
 
             macro_df = _fetch_all_macros(self.fred, start_fetch)
-            combined = pd.concat([etf_df, macro_df], axis=1)
-            combined = combined.ffill(limit=5)
-            combined = combined[(combined.index.dayofweek < 5) & (combined.index < today)]
+            combined = pd.concat([etf_df, macro_df], axis=1).ffill(limit=5)
+            
+            # Filter for trading days
+            combined = combined[combined.index.dayofweek < 5]
 
             final_df = combined if is_full_seed else pd.concat([master_df, combined])
             final_df = final_df[~final_df.index.duplicated(keep="last")].sort_index()
             final_df.columns = [str(c).strip() for c in final_df.columns]
 
+            # Upload to Hugging Face
             buf = io.BytesIO()
             final_df.to_parquet(buf)
             buf.seek(0)
@@ -155,15 +160,14 @@ class FeatureLoader:
                 repo_type       = HF_REPO_TYPE,
                 token           = self.hf_token,
             )
-            return f"Success: {'Full Seed' if is_full_seed else 'Incremental'} complete. Rows: {len(final_df)}"
+            return f"Success: {'Full Seed' if is_full_seed else 'Incremental'} synced. Rows: {len(final_df)}"
         except Exception as e:
             return f"Sync Failed: {str(e)}"
 
 # ---------------------------------------------------------------------------
-# APP WRAPPER (Force Sync Logic Included)
+# APP WRAPPER (Modified to handle User-Triggered Force Refresh)
 # ---------------------------------------------------------------------------
-def load_raw_data():
-    """Wrapper function that forces a sync to replace SOFR with T-Bill"""
+def load_raw_data(force_sync: bool = False):
     try:
         f_key = st.secrets["FRED_API_KEY"]
         h_token = st.secrets["HF_TOKEN"]
@@ -173,24 +177,22 @@ def load_raw_data():
 
     loader = FeatureLoader(fred_key=f_key, hf_token=h_token)
     
-    # Check if we need to force an update (if SOFR exists or data is empty)
-    df_initial = loader.load_master()
-    if h_token and (df_initial.empty or "SOFR" in df_initial.columns):
-        print("FORCING DATA SYNC TO REPLACE SOFR...")
-        sync_result = loader.sync_data()
-        print(f"SYNC RESULT: {sync_result}")
+    # 1. If user clicked button OR SOFR exists, trigger the API fetcher
+    if force_sync and h_token:
+        st.info("🔄 Initiating External API Sync (FRED/Stooq/YF)...")
+        loader.sync_data()
     
+    # 2. Load the data (now potentially updated)
     df = loader.load_master()
+    
+    # 3. Fallback to live yfinance if HF is still empty
     if df.empty:
         df = _fetch_etf_yfinance(ETF_TICKERS, DATA_START)
 
-    # Diagnostics for Logs
-    print("--- Loader Diagnostic: Signal Availability ---")
-    for col in df.columns:
-        print(f"Signal: {col} | Available from: {df[col].first_valid_index()}")
-
+    # 4. Process Returns
     for t in ETF_TICKERS:
-        if t in df.columns and f"{t}_Ret" not in df.columns:
+        if t in df.columns:
             df[f"{t}_Ret"] = df[t].pct_change()
 
-    return df.dropna()
+    # Drop only rows where returns are missing (usually just the first row)
+    return df.dropna(subset=[f"{t}_Ret" for t in ETF_TICKERS if t in df.columns])
