@@ -174,19 +174,25 @@ st.markdown("<p style='text-align: center; color: #5f6368; font-weight: 500;'>In
 with st.sidebar:
     st.header("Terminal Config")
     
-    # --- CORRECTED REFRESH BUTTON ---
+    
+with st.sidebar:
+    st.header("Terminal Config")
+    
+    # --- FIXED REFRESH LOGIC ---
     if st.button("🔄 Force Data Refresh"):
-        with st.spinner("Fetching live data from Stooq, FRED, and Yahoo..."):
+        with st.spinner("Connecting to FRED & Stooq..."):
             st.cache_data.clear()
-            # This triggers the sync logic we added to loader.py
+            # This calls the force_sync we added to your loader.py
             try:
                 load_raw_data(force_sync=True)
-                st.success("Hugging Face Dataset Updated!")
+                st.success("Sync Complete!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Sync failed: {e}")
+                st.error(f"Sync Error: {e}")
 
-    st.caption(f"✨ Last sync: {st.session_state.get('last_refresh', 'N/A')}")
+    # Use .get() to avoid errors if last_refresh isn't set yet
+    last_ref = st.session_state.get('last_refresh', 'Pending')
+    st.caption(f"✨ Last sync: {last_ref}")
     
     # ... rest of your sidebar code (slider, radio, etc.)
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
