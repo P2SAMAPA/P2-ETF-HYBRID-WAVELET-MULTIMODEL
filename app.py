@@ -34,7 +34,6 @@ st.markdown("""
 # CORE ANALYTICS ENGINE
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
-@st.cache_data(ttl=3600)
 def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     raw_df = load_raw_data()
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
@@ -51,15 +50,13 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
             
             # --- ENGINE SELECTION ---
             if "Option C" in model_choice:
-                # Pure A2C logic
                 engine = A2CEngine()
             else:
-                # Options A, B, and D use SVR
                 engine = MomentumEngine(c_param=700.0)
             
             engine.train(X[is_mask], y[is_mask])
             
-            # Logic Fix: Ensure we always map predictions to the OOS index
+            # Prediction Alignment
             preds = engine.predict_series(X[oos_mask])
             all_preds[ticker] = pd.Series(preds, index=idx[oos_mask])
             
@@ -70,21 +67,15 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     pred_df = pd.DataFrame(all_preds).dropna()
     if pred_df.empty: return None
 
-    # --- THRESHOLD LOGIC FIX ---
-   # --- DYNAMIC THRESHOLD LOGIC ---
+    # --- DYNAMIC THRESHOLD LOGIC ---
     if "Option B" in model_choice:
         threshold = 0.0015  # Fixed PPO Hurdle
     elif "Option D" in model_choice:
-        # OPTION D FIX: 
-        # Instead of a fixed number, we require the best prediction 
-        # to be at least 1 Standard Deviation above the mean of all predictions.
-        # This is the 'Advantage' in A2C.
-        # Reducing from 1.5 to 0.75 lowers the 'Advantage' hurdle,
-        # allowing the model to be more aggressive (higher returns).
+        # SVR-A2C Hybrid: Reduced to 0.75 sigma for optimized participation
         ticker_std = pred_df.values.std()
-        threshold = ticker_std * 0.75  # The "Sweet Spot" setting
+        threshold = ticker_std * 0.75  
     else:
-        threshold = 0.0    # Option A & C: Direct Action
+        threshold = 0.0     # Option A & C: Direct Action
 
     oos_idx = pred_df.index
     equity = 100.0
@@ -100,11 +91,11 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         best_ticker = daily_preds.idxmax()
         
         # Primary Signal Generation
-        # If the SVR conviction isn't above the A2C hurdle, we sit in CASH.
         if daily_preds.max() > threshold:
             signal_asset = best_ticker
         else:
             signal_asset = "CASH"
+
         # Stop Loss Logic
         if current_asset != "CASH":
             current_price = raw_df.loc[date, current_asset]
@@ -145,12 +136,11 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     for b in ["SPY", "AGG"]:
         res[b] = (raw_df.loc[oos_idx, f"{b}_Ret"].add(1).cumprod() * 100)
 
-    # Confidence calculation for the UI
+    # Confidence and Stats calculation
     last_preds = pred_df.iloc[-1]
     z_score = (last_preds.max() - last_preds.mean()) / last_preds.std() if last_preds.std() > 0 else 0
     confidence_val = max(0.40, min(0.98, 0.5 + (z_score * 0.18)))
 
-    # Win/Loss for Kelly
     pos_rets = [r for r in strat_rets if r > 0]
     neg_rets = [abs(r) for r in strat_rets if r < 0]
     win_loss_ratio = (np.mean(pos_rets) / np.mean(neg_rets)) if (pos_rets and neg_rets) else 1.0
@@ -167,6 +157,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         "win_loss_ratio": win_loss_ratio,
         "next_date": next_mkt.strftime('%A, %b %d, %Y')
     }
+
 # ---------------------------------------------------------------------------
 # TERMINAL UI RENDERING
 # ---------------------------------------------------------------------------
@@ -182,15 +173,12 @@ with st.sidebar:
 
     st.caption(f"✨ Last sync: {st.session_state.last_refresh}")
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
-    
-    # NEW RL-INTEGRATED LABELS
     opt = st.radio("Model Logic", [
         "Option A - Wavelet-SVR", 
         "Option B - Wavelet-SVR-PPO", 
         "Option C - Wavelet-A2C", 
         "Option D - Wavelet-SVR-A2C"
     ])
-    
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
 output = run_professional_backtest(s_yr, opt, costs)
@@ -229,24 +217,16 @@ if output:
     max_daily_loss = data["Strategy_Ret"].min()
     worst_day_date = data["Strategy_Ret"].idxmin().strftime('%b %d, %Y')
 
-    # Audit Trail Sync
     audit_data = output["audit"][output["audit"]["Daily_Return"] != 0].tail(15)
     audit_data.index = audit_data.index.date
     hit_ratio_sync = (audit_data["Daily_Return"] > 0).sum() / len(audit_data) if len(audit_data) > 0 else 0
 
-    # Kelly Calculation
     p = hit_ratio_sync
     b = output["win_loss_ratio"]
     kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
     
-    # Arrow Logic
-    if safe_kelly > 0.60:
-        k_arrow, k_col = "▲", "normal"
-    elif safe_kelly < 0.30:
-        k_arrow, k_col = "▼", "inverse"
-    else:
-        k_arrow, k_col = "▶", "off"
+    k_arrow, k_col = ("▲", "normal") if safe_kelly > 0.60 else (("▼", "inverse") if safe_kelly < 0.30 else ("▶", "off"))
 
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
@@ -279,7 +259,6 @@ if output:
     with col_right:
         st.subheader("🔬 Methodology & Engine Logic")
         
-        # Determine logic description based on selection
         if "Option D" in opt:
             logic_desc = "Hybrid Alpha-Advantage gating. SVR generates directional bias, while A2C filters exposure based on 0.75σ relative conviction."
         elif "Option B" in opt:
@@ -297,7 +276,7 @@ if output:
         * **Signal Extraction:** Dual-filter Wavelet Transform removes intraday noise before training.
         
         **Risk Framework:**
-        * **Dynamic Stop-Loss:** Active 10% trailing drawdown protection.
+        * **Dynamic Stop-Loss:** Active 10% trailing drawdown protection calibrated to peak equity.
         * **Kelly Criterion:** 15-day 'Edge' profiling determines optimal capital allocation via Half-Kelly sizing.
         * **Liquidity Gate:** Strategy reverts to **CASH** when conviction falls below $\sigma$ thresholds.
         """)
