@@ -214,17 +214,29 @@ if output:
     ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
     sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
     
-    # Logic for Kelly Score & Win-Loss Arrow
+ # Updated Kelly & Delta Logic
     pos_rets = [r for r in strat_rets if r > 0]
     neg_rets = [abs(r) for r in strat_rets if r < 0]
     win_loss_ratio = (np.mean(pos_rets) / np.mean(neg_rets)) if (pos_rets and neg_rets) else 1.0
     
+    # Half-Kelly Calculation
     hit_ratio_sync = (pd.Series(strat_rets).tail(15) > 0).sum() / 15
     p, b = hit_ratio_sync, win_loss_ratio
     kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
     
-    k_arrow, k_col = ("▲", "normal") if safe_kelly > 0.4 else ("▼", "inverse")
+    # FIX: Arrow color now tied to Win/Loss Ratio being > 1.0 (Profitable)
+    # k_arrow: Up if Kelly is positive
+    # k_col: Green (normal) if W/L is healthy, Red (inverse) if W/L is poor
+    k_arrow = "▲" if safe_kelly > 0 else "▼"
+    k_col = "normal" if win_loss_ratio >= 1.0 else "inverse"
+
+    m1.metric("Annualized Return", f"{ann_ret:.2%}")
+    m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
+    m3.metric("Max Drawdown (P-T)", f"{data['Drawdown'].min():.2%}")
+    m4.metric("Max DD (Daily)", f"{data['Strategy_Ret'].min():.2%}")
+    m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
+    m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=f"{k_arrow} {win_loss_ratio:.2f} W/L", delta_color=k_col)
 
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
