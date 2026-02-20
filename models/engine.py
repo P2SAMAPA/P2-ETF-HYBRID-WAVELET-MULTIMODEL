@@ -55,6 +55,7 @@ class DeepHybridEngine:
 
     def train(self, X_price, y, X_macro=None):
         """Trains the deep engine based on the selected architecture."""
+        import tensorflow as tf # Lazy import
         try:
             if self.mode == "Option K":
                 self.model = self._build_parallel_model(X_price.shape[2], X_macro.shape[1])
