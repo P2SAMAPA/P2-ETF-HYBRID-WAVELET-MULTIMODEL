@@ -297,13 +297,22 @@ st.plotly_chart(fig, use_container_width=True)
   # --- DYNAMIC AUDIT & METHODOLOGY SECTION ---
     st.markdown("---")
     
-    # 1. Audit Trail gets the FULL width of the page
     st.subheader("📋 Audit Trail")
-    audit_display = output["audit"].copy().sort_index(ascending=False)
-    audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
-    # use_container_width=True now uses the whole screen, preventing cut-offs
-    st.dataframe(audit_display.head(20).style.format({"Daily_Return": "{:.2%}"}), use_container_width=True)
 
+audit_display = output["audit"].copy().sort_index(ascending=False)
+audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
+
+# Helper function for conditional coloring
+def color_returns(val):
+    color = '#228B22' if val > 0 else '#FF4B4B' if val < 0 else '#808080'
+    return f'color: {color}'
+
+# Apply formatting and coloring
+styled_audit = audit_display.head(20).style.format({
+    "Daily_Return": "{:.2%}"
+}).applymap(color_returns, subset=['Daily_Return'])
+
+st.dataframe(styled_audit, use_container_width=True)
     st.markdown("---")
     
     # 2. Methodology gets the full width below it for better readability
