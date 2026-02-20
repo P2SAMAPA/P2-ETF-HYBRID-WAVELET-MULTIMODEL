@@ -225,20 +225,12 @@ if output:
     kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
 
-    # --- THE COLOR & ARROW FIX ---
-    # 1. Determine Arrow Direction based on Capital Allocation (Kelly Recommendation)
-    k_arrow = "▲" if safe_kelly > 0 else "▼"
-    
-    # 2. Determine Color:
-    # We want GREEN if W/L > 1.0 (Profitable)
-    # We want RED if W/L < 1.0 (Unprofitable)
-    # Streamlit "normal" makes positive delta Green. 
-    # Streamlit "inverse" makes positive delta Red.
-    # Since our delta string is "▲ 1.18 W/L" (positive), we use "normal" for Green and "inverse" for Red.
-    if win_loss_ratio >= 1.0:
-        k_col = "normal"  # This will make the positive W/L ratio GREEN
-    else:
-        k_col = "inverse" # This will make the positive W/L ratio RED
+    # --- THE DEFINITIVE COLOR FIX ---
+    # We use '▲' for everything to keep it clean.
+    # If W/L >= 1, we want Green. In 'normal' mode, a string is Green.
+    # If W/L < 1, we want Red. In 'inverse' mode, that same string becomes Red.
+    k_col = "normal" if win_loss_ratio >= 1.0 else "inverse"
+    k_arrow = "▲" if win_loss_ratio >= 1.0 else "▼"
 
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
@@ -246,7 +238,6 @@ if output:
     m4.metric("Max DD (Daily)", f"{data['Strategy_Ret'].min():.2%}")
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
     
-    # Applying the explicit color and arrow logic here
     m6.metric(
         label="Kelly Recco", 
         value=f"{safe_kelly:.0%}", 
@@ -254,48 +245,38 @@ if output:
         delta_color=k_col
     )
 
-    # --- EQUITY CHART ---
-    st.markdown("<h3 style='margin-top: 25px;'>Cumulative Performance</h3>", unsafe_allow_html=True)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data.index, y=data["Equity"], name="Model Strategy", line=dict(color='#1a73e8', width=3)))
-    fig.add_trace(go.Scatter(x=data.index, y=data["SPY"], name="SPY", line=dict(color='#9aa0a6', dash='dot')))
-    fig.update_layout(template="plotly_white", height=450, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified")
-    st.plotly_chart(fig, use_container_width=True)
-
-    # --- DYNAMIC AUDIT & METHODOLOGY ---
-    col_left, col_right = st.columns([1.2, 1])
+    # --- DYNAMIC METHODOLOGY SECTION ---
+    st.markdown("---")
+    col_l, col_r = st.columns([1.2, 1])
     
-    with col_left:
+    with col_l:
         st.subheader("📋 Audit Trail")
         audit_display = output["audit"].copy().sort_index(ascending=False)
         audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
-        st.dataframe(audit_display.head(20).style.format({"Daily_Return": "{:.2%}"}), use_container_width=True, height=500)
+        st.dataframe(audit_display.head(20).style.format({"Daily_Return": "{:.2%}"}), use_container_width=True)
 
-    with col_right:
+    with col_r:
         st.subheader("🔬 Methodology & Engine Logic")
         
-        # DYNAMIC LOGIC DICTIONARY - Explains the math for each Option
+        # This dictionary maps your sidebar options to specific technical explanations
         methods = {
-            "Option A": "**Standard SVR:** Support Vector Regression using a Radial Basis Function (RBF) kernel to identify non-linear support boundaries in price action.",
-            "Option B": "**SVR-PPO:** Proximal Policy Optimization (PPO) reinforcement learning layer that penalizes excessive turnover and clips updates to ensure stable SVR outputs.",
-            "Option C": "**A2C Policy:** Advantage Actor-Critic (A2C) architecture. The 'Actor' predicts the next allocation while the 'Critic' estimates the expected Sharpe Ratio.",
-            "Option D": "**Hybrid SVR-A2C:** Uses SVR for trend direction and A2C for position sizing. Exposure is scaled by the advantage function (Actual Return - Baseline).",
-            "Option E": "**HMM Regime:** A Gaussian Hidden Markov Model trained to identify latent market regimes (Bullish, Bearish, Sideways) by analyzing DXY and VIX volatility clusters.",
-            "Option F": "**SVR-HMM:** Fusion model. SVR generates a signal, but it is vetoed (CASH) if the HMM detects a 'High Volatility' or 'Bearish' latent state.",
-            "Option G": "**BSTS Filter:** Bayesian Structural Time Series. Decomposes the signal into Trend, Seasonality, and Regression components to find structural alpha.",
-            "Option H": "**Wavelet-SVR-BSTS:** Applies a Discrete Wavelet Transform (DWT) to denoise the price series before feeding the approximation coefficients into the BSTS trend engine."
+            "Option A": "**Wavelet-SVR:** Decomposes price into frequency components; SVR identifies non-linear support/resistance levels.",
+            "Option B": "**SVR-PPO:** Adds a Proximal Policy Optimization layer to the SVR to clip radical weight changes and reduce churn.",
+            "Option C": "**A2C Policy:** An Advantage Actor-Critic reinforcement learning model. The Actor picks assets while the Critic evaluates the risk-adjusted reward.",
+            "Option D": "**SVR-A2C Hybrid:** Uses SVR for trend direction and A2C to optimize the 'Advantage' of one asset over another.",
+            "Option E": "**HMM Regime:** A Hidden Markov Model that identifies Bull/Bear/Neutral regimes based on VIX and Credit Spread clusters.",
+            "Option F": "**SVR-HMM Fusion:** SVR identifies the asset, but the HMM acts as a macro-filter, forcing CASH if the regime is unstable.",
+            "Option G": "**BSTS Filter:** Bayesian Structural Time Series. It treats price as a combination of trend, seasonality, and regression components.",
+            "Option H": "**Wavelet-SVR-BSTS:** The ultimate ensemble. Denoises via Wavelet, predicts via SVR, and verifies trend significance via Bayesian logic."
         }
         
-        # Match current option from your sidebar
-        current_desc = next((v for k, v in methods.items() if k in opt), "Ensemble Engine")
+        # Logic to pull the correct description based on the 'opt' variable from your sidebar
+        active_logic = next((desc for key, desc in methods.items() if key in opt), "Ensemble Logic")
 
         st.markdown(f"""
-        **Architecture:** Multi-Engine Ensemble (Wavelet + SVR + PPO + A2C + HMM/BSTS)
+        **Current Execution:** {active_logic}
         
-        **Current Model Logic:**
-        * {current_desc}
-        
-        **Risk Framework:**
-        * **Kelly Criterion:** Half-Kelly sizing updated on 15-day rolling windows.
-        * **Regime Gate:** Automatic CASH reversion when model confidence falls below 60%.
+        **Risk Controls:**
+        * **Kelly Criterion:** Half-Kelly sizing applied to current volatility.
+        * **Regime Gating:** Integrated DXY and Yield Curve monitoring.
         """)
