@@ -4,7 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from data.loader import load_raw_data
-from models.engine import MomentumEngine
+from models.engine import MomentumEngine, A2CEngine
 
 # Institutional UI Configuration - White Background
 st.set_page_config(page_title="P2 ETF WAVELET SVR PPO MODEL", layout="wide", initial_sidebar_state="collapsed")
@@ -238,18 +238,29 @@ if output:
             use_container_width=True, height=560
         )
 
-    with col_right:
+   with col_right:
         st.subheader("🔬 Methodology Overview")
-        st.markdown(f"""
-        **Algorithm:** Non-linear SVR (Support Vector Regression) utilizing a polynomial kernel to capture non-linear macro relationships.
         
-        **Risk Controls:**
-        - **Model Selection:** {opt} manages churn based on prediction conviction.
+        # Determine specific model description based on selection
+        if "A2C" in opt:
+            rl_desc = "**RL Engine:** A2C (Advantage Actor-Critic) utilizes a synchronous policy gradient to maximize the 'Advantage' of a trade relative to a baseline risk-free return."
+        elif "PPO" in opt:
+            rl_desc = "**RL Engine:** PPO (Proximal Policy Optimization) utilizes a clipped objective function to ensure stable, conservative strategy updates."
+        else:
+            rl_desc = "**RL Engine:** None (Pure SVR). Allocation is based solely on the highest raw SVR point-prediction."
+
+        st.markdown(f"""
+        **Algorithm:** Non-linear SVR with Wavelet Denoising for high-frequency signal extraction.
+        
+        **Strategy Logic:**
+        - **{opt}:** { 'Hybrid mode using SVR for prediction and RL for execution filtering.' if 'SVR-' in opt else 'Pure-play model focusing on ' + opt.split('-')[-1] + ' logic.' }
+        
+        **Risk & Execution:**
+        - {rl_desc}
         - **Liquidity Buffer:** 'CASH' positions yield the daily **3-Month T-Bill** rate.
-        - **Kelly Sizing:** Suggests capital allocation based on the 15-day Edge Profile.
+        - **Kelly Sizing:** Suggests capital allocation based on the 15-day Edge Profile (Half-Kelly).
         
         **System Integrity:**
-        - **Feature Space:** Aggregated macro signals and ETF returns.
         - **Lookback History:** {len(data)} trading sessions analyzed in this window.
         - **Next Signal Window:** Active for market open on {output['next_date']}.
         """)
