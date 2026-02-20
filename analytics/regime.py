@@ -4,43 +4,52 @@ from hmmlearn.hmm import GaussianHMM
 
 class RegimeHMM:
     def __init__(self, n_states=3):
-        """
-        n_states usually corresponds to:
-        0: Low Vol / Bullish
-        1: High Vol / Bearish (Crash)
-        2: Transitional / Sideways
-        """
+        # We use 3 states: 
+        # State 0: Low Vol/Expansion, State 1: High Vol/Contraction, State 2: Transition
         self.model = GaussianHMM(
             n_components=n_states, 
             covariance_type="full", 
             n_iter=1000,
             random_state=42
         )
-        self.n_states = n_states
+        self.state_map = {}
 
-    def train(self, macro_data):
-        # We fit on the changes/returns of macro data to ensure stationarity
-        train_data = macro_data.pct_change().dropna().values
-        self.model.fit(train_data)
+    def train_and_assign(self, df, assets):
+        """
+        df: The dataframe from load_raw_data()
+        assets: List of tickers like ['GLD', 'TLT', etc.]
+        """
+        # 1. Define the 5 Pillars of Macro Context
+        macro_cols = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
         
-    def predict_state(self, current_macro_row):
-        # Returns the hidden state ID for the current day
-        # current_macro_row should be 2D: [1, n_features]
+        # 2. Prepare Features: We use daily changes (diff) to identify shifts
+        # Dropping NaNs is critical for HMM stability
+        macro_data = df[macro_cols].diff().dropna()
+        asset_rets = df[[f"{a}_Ret" for a in assets]].loc[macro_data.index]
+        
+        # 3. Fit the HMM
+        self.model.fit(macro_data)
+        
+        # 4. Labeling the States
+        # We look at which asset outperformed in which hidden state
+        hidden_states = self.model.predict(macro_data)
+        state_results = pd.DataFrame({'State': hidden_states}, index=macro_data.index)
+        combined = state_results.join(asset_rets)
+        
+        for s in range(self.model.n_components):
+            # Calculate mean return per asset in this specific state
+            avg_rets = combined[combined['State'] == s].drop(columns='State').mean()
+            # Map the State ID to the winning asset ticker
+            best_asset = avg_rets.idxmax().replace("_Ret", "")
+            self.state_map[s] = best_asset
+
+    def predict_best_asset(self, current_macro_sample):
+        """
+        Predicts the best asset based on the current macro state.
+        current_macro_sample: 2D array of the latest macro diffs
+        """
         try:
-            state = self.model.predict(current_macro_row)
-            return state[0]
+            state = self.model.predict(current_macro_sample)[0]
+            return self.state_map.get(state, "CASH")
         except:
-            return 0 # Default to neutral if prediction fails
-
-class BayesianFilter:
-    """
-    Placeholder for BSTS logic. 
-    BSTS helps determine if a trend is 'Structural' or 'Transitory'.
-    """
-    def __init__(self):
-        pass
-
-    def get_trend_confidence(self, series):
-        # Logic to be implemented with statsmodels.tsa.statespace.structural
-        # For now, returns a dummy confidence score
-        return 1.0
+            return "CASH"
