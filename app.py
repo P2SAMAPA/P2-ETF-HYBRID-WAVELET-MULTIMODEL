@@ -242,17 +242,22 @@ if output:
     st.plotly_chart(fig, use_container_width=True)
 
     # --- FINAL LAYOUT SECTION ---
+    # --- ULTIMATE AUDIT & METHODOLOGY FIX ---
     col_left, col_right = st.columns([1.2, 1])
     
     with col_left:
-        st.subheader("📋 Audit Trail")
-        # FORCE REFRESH: Capture the absolute tail of the processed audit data
+        st.subheader("📋 Audit Trail (Latest First)")
+        # 1. Capture the full audit data
         audit_display = output["audit"].copy()
-        # Convert index to string to prevent Streamlit from caching old date formats
-        audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
         
+        # 2. Convert index to string and SORT REVERSE to show Feb 19 at the TOP
+        audit_display.index = pd.to_datetime(audit_display.index)
+        audit_display = audit_display.sort_index(ascending=False)
+        audit_display.index = audit_display.index.strftime('%Y-%m-%d')
+        
+        # 3. Render with high visibility
         st.dataframe(
-            audit_display.tail(25).style.format({"Daily_Return": "{:.2%}"}).map(
+            audit_display.head(20).style.format({"Daily_Return": "{:.2%}"}).map(
                 lambda x: f'color: {"#1b5e20" if x > 0 else "#b71c1c"}; font-weight: bold;', 
                 subset=['Daily_Return']
             ),
@@ -262,7 +267,7 @@ if output:
     with col_right:
         st.subheader("🔬 Methodology & Engine Logic")
         
-        # Methodology Mapping for all 8 varieties
+        # Consistent mapping for all options
         mapping = {
             "Option A": "Standard non-linear SVR. Focuses on raw point-prediction for maximum market participation.",
             "Option B": "Directional SVR with PPO Stability. Uses a fixed 15bps hurdle to ensure entries occur only during high-momentum regimes.",
@@ -274,7 +279,6 @@ if output:
             "Option H": "Wavelet-SVR-BSTS. SVR identifies the target, while a Bayesian Filter confirms structural trend significance (Conf > 65%)."
         }
         
-        # Match current option to mapping
         logic_desc = next((desc for opt_key, desc in mapping.items() if opt_key in opt), "Ensemble logic execution.")
 
         st.markdown(f"""
