@@ -252,20 +252,7 @@ if output:
     # By NOT passing 'delta=', the arrow is physically impossible.
     m6.metric(label=f"Kelly (W/L: {win_loss_ratio:.2f})", value=f"{safe_kelly:.0%}")
 
-    # --- ZERO ARROW SOLUTION ---
-    # We move W/L into the label and remove delta entirely.
-    # This is the only way to guarantee 0 arrows in Streamlit.
-    m1.metric("Annualized Return", f"{ann_ret:.2%}")
-    m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-    m3.metric("Max Drawdown", f"{data['Drawdown'].min():.2%}")
-    m4.metric("Daily Vol", f"{data['Strategy_Ret'].std() * np.sqrt(252):.2%}")
-    m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
     
-    # m6 now has no delta parameter, so no arrow can possibly render.
-    m6.metric(
-        label=f"Kelly Recco (W/L: {win_loss_ratio:.2f})", 
-        value=f"{safe_kelly:.0%}"
-    )
 
     # --- DYNAMIC METHODOLOGY SECTION ---
     st.markdown("---")
