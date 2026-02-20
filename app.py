@@ -212,7 +212,7 @@ if output:
         </div>
     """, unsafe_allow_html=True)
 
-   m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     
     # Logic for Kelly Score & Win-Loss Arrow
     pos_rets = [r for r in strat_rets if r > 0]
