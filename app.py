@@ -242,9 +242,11 @@ if output:
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
 
     # --- THE CLEANEST UI (NO DELTA = NO ARROWS) ---
-    # Calculation for m4 must happen before the metric is called
+    # --- CALCULATIONS FOR METRICS ---
+    # Find the minimum daily return and its full date
     worst_day_val = data['Strategy_Ret'].min()
-    worst_day_date = data['Strategy_Ret'].idxmin().strftime('%m/%d')
+    # %Y gives the 4-digit year
+    worst_day_date = data['Strategy_Ret'].idxmin().strftime('%m/%d/%Y')
 
     m1.metric("Ann. Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe", f"{sharpe:.2f}")
