@@ -46,7 +46,15 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             is_mask = idx.year < start_yr
             oos_mask = idx.year >= start_yr
-            engine = MomentumEngine(c_param=700.0)
+            
+            # --- 1. ENGINE SELECTION LOGIC ---
+            if "Option C" in model_choice:
+                # Pure A2C logic
+                engine = A2CEngine()
+            else:
+                # Options A, B, and D use SVR as the prediction base
+                engine = MomentumEngine(c_param=700.0)
+            
             engine.train(X[is_mask], y[is_mask])
             all_preds[ticker] = pd.Series(engine.predict_series(X[oos_mask]), index=idx[oos_mask])
         except: continue
@@ -54,12 +62,19 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     pred_df = pd.DataFrame(all_preds).dropna()
     if pred_df.empty: return None
 
+    # --- 2. DECISION LOGIC (THRESHOLD) ---
+    if "Option B" in model_choice:
+        threshold = 0.0015 # PPO Conservative Hurdle
+    elif "Option D" in model_choice:
+        threshold = 0.0005 # SVR-A2C Advantage Filter
+    else:
+        threshold = 0.0    # Pure SVR / Pure A2C (Direct Action)
+
     oos_idx = pred_df.index
     equity = 100.0
     current_asset = "CASH"
     strat_rets = []
     asset_history = []
-    threshold = 0.0015 if "Option B" in model_choice else 0.0
     
     # --- Peak Tracking Variables ---
     peak_price_since_entry = 0.0
@@ -144,7 +159,12 @@ st.markdown("<p style='text-align: center; color: #5f6368; font-weight: 500;'>In
 
 with st.sidebar:
     st.header("Terminal Config")
-    # ... (existing refresh logic) ...
+    if st.button("🔄 Force Data Refresh"):
+        st.cache_data.clear()
+        st.session_state.last_refresh = datetime.now().strftime("%b %d, %H:%M:%S")
+        st.rerun()
+
+    st.caption(f"✨ Last sync: {st.session_state.last_refresh}")
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     
     # NEW RL-INTEGRATED LABELS
@@ -241,10 +261,9 @@ if output:
             use_container_width=True, height=560
         )
 
-   with col_right:
+    with col_right:
         st.subheader("🔬 Methodology Overview")
         
-        # Determine specific model description based on selection
         if "A2C" in opt:
             rl_desc = "**RL Engine:** A2C (Advantage Actor-Critic) utilizes a synchronous policy gradient to maximize the 'Advantage' of a trade relative to a baseline risk-free return."
         elif "PPO" in opt:
