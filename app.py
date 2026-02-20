@@ -252,7 +252,57 @@ if output:
     # By NOT passing 'delta=', the arrow is physically impossible.
     m6.metric(label=f"Kelly (W/L: {win_loss_ratio:.2f})", value=f"{safe_kelly:.0%}")
 
+    # ========================================================
+    # 📈 INSERT THE GRAPH CODE BELOW THIS LINE
+    # ========================================================
     
+    st.markdown("---")
+    st.subheader("Performance Comparison (Base 100)")
+
+    # 1. Normalization Logic
+    spy_start = data["SPY"].iloc[0]
+    agg_start = data["AGG"].iloc[0]
+    equity_start = data["Equity"].iloc[0]
+
+    data["SPY_Norm"] = (data["SPY"] / spy_start) * 100
+    data["AGG_Norm"] = (data["AGG"] / agg_start) * 100
+    data["Strategy_Norm"] = (data["Equity"] / equity_start) * 100
+
+    # 2. Charting Logic
+    import plotly.graph_objects as go
+    
+    fig = go.Figure()
+    
+    # Strategy Line (Bold Green)
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data["Strategy_Norm"], 
+        mode='lines', name='Strategy', 
+        line=dict(color='#00FFCC', width=3)
+    ))
+    
+    # SPY Benchmark (Dotted Blue)
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data["SPY_Norm"], 
+        mode='lines', name='S&P 500 (SPY)', 
+        line=dict(color='#636EFA', width=1.5, dash='dot')
+    ))
+    
+    # AGG Benchmark (Dotted Purple)
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data["AGG_Norm"], 
+        mode='lines', name='Bonds (AGG)', 
+        line=dict(color='#AB63FA', width=1.5, dash='dot')
+    ))
+
+    fig.update_layout(
+        template="plotly_dark", 
+        hovermode="x unified", 
+        height=450,
+        margin=dict(l=0, r=0, t=30, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
 
   # --- DYNAMIC AUDIT & METHODOLOGY SECTION ---
     st.markdown("---")
