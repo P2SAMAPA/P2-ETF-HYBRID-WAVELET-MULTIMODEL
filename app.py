@@ -185,7 +185,10 @@ if output:
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
     m3.metric("Max Drawdown (P-T)", f"{max_dd:.2%}")
-    m4.metric("Max DD (Daily)", f"{max_daily_loss:.2%}")
+    # Display the loss with the date as the sub-label (delta)
+    m4.metric("Max DD (Daily)", f"{max_daily_loss:.2%}", help=f"Occurred on {worst_day_date}")
+    # Alternatively, if you want the date visible right under the number:
+    # m4.write(f"<p style='font-size:10px; color:grey; margin-top:-15px;'>{worst_day_date}</p>", unsafe_allow_html=True)
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
     # ROW 3: EQUITY CHART
     st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance: Strategy vs. SPY Benchmark</h3>", unsafe_allow_html=True)
