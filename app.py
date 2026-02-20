@@ -207,8 +207,13 @@ if output:
         </div>
     """, unsafe_allow_html=True)
 
-    # --- METRICS CALCULATIONS ---
+   # --- METRICS CALCULATIONS ---
     m1, m2, m3, m4, m5, m6 = st.columns(6)
+    
+    # Calculate Core Performance Stats (Fixes NameError)
+    excess = data["Strategy_Ret"] - data["RF"]
+    ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
+    sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
     
     # Win/Loss & Kelly Logic
     pos_rets = [r for r in strat_rets if r > 0]
@@ -220,10 +225,10 @@ if output:
     kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
 
-    # UI LOGIC FOR KELLY BOX
-    # Arrow points UP if we are allocating capital (>0), DOWN if we are in CASH (0)
+    # UI LOGIC FOR KELLY BOX (FIXED COLOR & ARROW)
     k_arrow = "▲" if safe_kelly > 0 else "▼"
-    # Color is GREEN if W/L is profitable (>=1), RED if losing (<1)
+    # "normal" = Green for Up, Red for Down. "inverse" = Red for Up, Green for Down.
+    # We use normal if W/L is good (>=1), and inverse if W/L is bad (<1) to force Red.
     k_col = "normal" if win_loss_ratio >= 1.0 else "inverse"
 
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
@@ -253,19 +258,19 @@ if output:
     with col_right:
         st.subheader("🔬 Methodology & Engine Logic")
         
-        # DYNAMIC LOGIC DICTIONARY
+        # DYNAMIC LOGIC DICTIONARY - Explains the math for each Option
         methods = {
-            "Option A": "**Standard SVR:** Uses Support Vector Regression to map non-linear price relationships.",
-            "Option B": "**SVR-PPO:** Proximal Policy Optimization (PPO) refines SVR outputs to minimize 'churn' and trading costs.",
-            "Option C": "**A2C Policy:** Advantage Actor-Critic (A2C) uses a policy gradient to maximize the Sharpe ratio directly.",
-            "Option D": "**Hybrid SVR-A2C:** SVR provides the trend bias, while A2C acts as the 'gatekeeper' for trade size.",
-            "Option E": "**HMM Regime:** A Hidden Markov Model detects 3 market states (Bull/Bear/Volatile) based on DXY and VIX.",
-            "Option F": "**SVR-HMM:** SVR executes trades only when the HMM confirms a 'Stable Bull' or 'High Vol' regime.",
-            "Option G": "**BSTS Filter:** Bayesian Structural Time Series decomposes price into trend/seasonal components to find signals.",
-            "Option H": "**Wavelet-BSTS:** Wavelet denoising strips out high-frequency noise before BSTS identifies the structural trend."
+            "Option A": "**Standard SVR:** Support Vector Regression using a Radial Basis Function (RBF) kernel to identify non-linear support boundaries in price action.",
+            "Option B": "**SVR-PPO:** Proximal Policy Optimization (PPO) reinforcement learning layer that penalizes excessive turnover and clips updates to ensure stable SVR outputs.",
+            "Option C": "**A2C Policy:** Advantage Actor-Critic (A2C) architecture. The 'Actor' predicts the next allocation while the 'Critic' estimates the expected Sharpe Ratio.",
+            "Option D": "**Hybrid SVR-A2C:** Uses SVR for trend direction and A2C for position sizing. Exposure is scaled by the advantage function (Actual Return - Baseline).",
+            "Option E": "**HMM Regime:** A Gaussian Hidden Markov Model trained to identify latent market regimes (Bullish, Bearish, Sideways) by analyzing DXY and VIX volatility clusters.",
+            "Option F": "**SVR-HMM:** Fusion model. SVR generates a signal, but it is vetoed (CASH) if the HMM detects a 'High Volatility' or 'Bearish' latent state.",
+            "Option G": "**BSTS Filter:** Bayesian Structural Time Series. Decomposes the signal into Trend, Seasonality, and Regression components to find structural alpha.",
+            "Option H": "**Wavelet-BSTS:** Applies a Discrete Wavelet Transform (DWT) to denoise the price series before feeding the approximation coefficients into the BSTS trend engine."
         }
         
-        # Get current description based on sidebar selection
+        # Match current option from your sidebar
         current_desc = next((v for k, v in methods.items() if k in opt), "Ensemble Engine")
 
         st.markdown(f"""
