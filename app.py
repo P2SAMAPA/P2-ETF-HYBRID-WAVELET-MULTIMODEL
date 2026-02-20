@@ -245,17 +245,11 @@ if output:
     m1.metric("Ann. Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe", f"{sharpe:.2f}")
     m3.metric("Max DD", f"{data['Drawdown'].min():.2%}")
-   `# 1. Calculate the worst day and the date it happened
-    worst_day_val = data['Strategy_Ret'].min()
-    worst_day_date = data['Strategy_Ret'].idxmin().strftime('%m/%d')
-
-    # 2. Updated Metric Box (Replaces Daily Vol)
     m4.metric(
         label="Max DD (Daily)", 
         value=f"{worst_day_val:.2%}", 
         delta=f"on {worst_day_date}", 
         delta_color="inverse"
-    )
     m5.metric("Hit Ratio", f"{hit_ratio_sync:.0%}")
     
     # We put the W/L ratio in a small caption below OR the label.
