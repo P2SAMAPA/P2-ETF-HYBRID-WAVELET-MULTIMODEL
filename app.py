@@ -207,28 +207,23 @@ if output:
         </div>
     """, unsafe_allow_html=True)
 
-    # ROW 2: PERFORMANCE & RISK METRICS
+    # --- METRICS CALCULATIONS ---
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     
-    excess = data["Strategy_Ret"] - data["RF"]
-    ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
-    sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
-    
- # Updated Kelly & Delta Logic
+    # Win/Loss & Kelly Logic
     pos_rets = [r for r in strat_rets if r > 0]
     neg_rets = [abs(r) for r in strat_rets if r < 0]
     win_loss_ratio = (np.mean(pos_rets) / np.mean(neg_rets)) if (pos_rets and neg_rets) else 1.0
     
-    # Half-Kelly Calculation
     hit_ratio_sync = (pd.Series(strat_rets).tail(15) > 0).sum() / 15
     p, b = hit_ratio_sync, win_loss_ratio
     kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
-    
-    # FIX: Arrow color now tied to Win/Loss Ratio being > 1.0 (Profitable)
-    # k_arrow: Up if Kelly is positive
-    # k_col: Green (normal) if W/L is healthy, Red (inverse) if W/L is poor
+
+    # UI LOGIC FOR KELLY BOX
+    # Arrow points UP if we are allocating capital (>0), DOWN if we are in CASH (0)
     k_arrow = "▲" if safe_kelly > 0 else "▼"
+    # Color is GREEN if W/L is profitable (>=1), RED if losing (<1)
     k_col = "normal" if win_loss_ratio >= 1.0 else "inverse"
 
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
@@ -238,64 +233,48 @@ if output:
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
     m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=f"{k_arrow} {win_loss_ratio:.2f} W/L", delta_color=k_col)
 
-  
-   # ROW 3: EQUITY CHART
-    st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance</h3>", unsafe_allow_html=True)
+    # --- EQUITY CHART ---
+    st.markdown("<h3 style='margin-top: 25px;'>Cumulative Performance</h3>", unsafe_allow_html=True)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=data.index, y=data["Equity"], name="Model Strategy", line=dict(color='#1a73e8', width=3)))
     fig.add_trace(go.Scatter(x=data.index, y=data["SPY"], name="SPY", line=dict(color='#9aa0a6', dash='dot')))
-    fig.update_layout(template="plotly_white", height=480, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified")
+    fig.update_layout(template="plotly_white", height=450, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- FINAL LAYOUT SECTION ---
-    # --- ULTIMATE AUDIT & METHODOLOGY FIX ---
+    # --- DYNAMIC AUDIT & METHODOLOGY ---
     col_left, col_right = st.columns([1.2, 1])
     
     with col_left:
-        st.subheader("📋 Audit Trail (Latest First)")
-        # 1. Capture the full audit data
-        audit_display = output["audit"].copy()
-        
-        # 2. Convert index to string and SORT REVERSE to show Feb 19 at the TOP
-        audit_display.index = pd.to_datetime(audit_display.index)
-        audit_display = audit_display.sort_index(ascending=False)
-        audit_display.index = audit_display.index.strftime('%Y-%m-%d')
-        
-        # 3. Render with high visibility
-        st.dataframe(
-            audit_display.head(20).style.format({"Daily_Return": "{:.2%}"}).map(
-                lambda x: f'color: {"#1b5e20" if x > 0 else "#b71c1c"}; font-weight: bold;', 
-                subset=['Daily_Return']
-            ),
-            use_container_width=True, height=560
-        )
+        st.subheader("📋 Audit Trail")
+        audit_display = output["audit"].copy().sort_index(ascending=False)
+        audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
+        st.dataframe(audit_display.head(20).style.format({"Daily_Return": "{:.2%}"}), use_container_width=True, height=500)
 
     with col_right:
         st.subheader("🔬 Methodology & Engine Logic")
         
-        # Consistent mapping for all options
-        mapping = {
-            "Option A": "Standard non-linear SVR. Focuses on raw point-prediction for maximum market participation.",
-            "Option B": "Directional SVR with PPO Stability. Uses a fixed 15bps hurdle to ensure entries occur only during high-momentum regimes.",
-            "Option C": "Pure Policy Gradient execution. Learns optimal asset weights by maximizing the Advantage Actor-Critic (A2C) objective.",
-            "Option D": "Hybrid Alpha-Advantage gating. SVR generates directional bias, while A2C filters exposure based on 0.75σ relative conviction.",
-            "Option E": "Macro Regime Switching. Uses a Hidden Markov Model (HMM) to detect 3 latent market states based on DXY, VIX, and Spreads.",
-            "Option F": "SVR-HMM Fusion. SVR provides the asset pick, but the HMM acts as a 'Risk-Off' circuit breaker during macro instability.",
-            "Option G": "Bayesian Structural Trend Selection. Uses BSTS to decompose price action into trend and noise components.",
-            "Option H": "Wavelet-SVR-BSTS. SVR identifies the target, while a Bayesian Filter confirms structural trend significance (Conf > 65%)."
+        # DYNAMIC LOGIC DICTIONARY
+        methods = {
+            "Option A": "**Standard SVR:** Uses Support Vector Regression to map non-linear price relationships.",
+            "Option B": "**SVR-PPO:** Proximal Policy Optimization (PPO) refines SVR outputs to minimize 'churn' and trading costs.",
+            "Option C": "**A2C Policy:** Advantage Actor-Critic (A2C) uses a policy gradient to maximize the Sharpe ratio directly.",
+            "Option D": "**Hybrid SVR-A2C:** SVR provides the trend bias, while A2C acts as the 'gatekeeper' for trade size.",
+            "Option E": "**HMM Regime:** A Hidden Markov Model detects 3 market states (Bull/Bear/Volatile) based on DXY and VIX.",
+            "Option F": "**SVR-HMM:** SVR executes trades only when the HMM confirms a 'Stable Bull' or 'High Vol' regime.",
+            "Option G": "**BSTS Filter:** Bayesian Structural Time Series decomposes price into trend/seasonal components to find signals.",
+            "Option H": "**Wavelet-BSTS:** Wavelet denoising strips out high-frequency noise before BSTS identifies the structural trend."
         }
         
-        logic_desc = next((desc for opt_key, desc in mapping.items() if opt_key in opt), "Ensemble logic execution.")
+        # Get current description based on sidebar selection
+        current_desc = next((v for k, v in methods.items() if k in opt), "Ensemble Engine")
 
         st.markdown(f"""
         **Architecture:** Multi-Engine Ensemble (Wavelet + SVR + HMM/BSTS)
         
-        **Core Logic:**
-        * **Active Strategy:** {logic_desc}
-        * **Macro Pillars:** Integrated DXY, Yield Curve (T10Y2Y), and Credit Spreads (IG/HY).
+        **Current Model Logic:**
+        * {current_desc}
         
         **Risk Framework:**
-        * **Trailing Stop:** 10% Drawdown hard-stop from peak equity.
-        * **Kelly Criterion:** Half-Kelly capital sizing updated on 15-day rolling windows.
-        * **Regime Gate:** Automatic CASH reversion when model confidence or macro states signal 'Systemic Risk'.
+        * **Kelly Criterion:** Half-Kelly sizing updated on 15-day rolling windows.
+        * **Regime Gate:** Automatic CASH reversion when model confidence falls below 60%.
         """)
