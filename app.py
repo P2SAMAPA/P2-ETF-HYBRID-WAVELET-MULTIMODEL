@@ -163,8 +163,9 @@ if output:
     ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
     sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
     max_dd = data["Drawdown"].min()
-   # Calculates the single worst 24-hour drop in the history of the backtest
+   # Find the worst daily return and the specific date it happened
     max_daily_loss = data["Strategy_Ret"].min()
+    worst_day_date = data["Strategy_Ret"].idxmin().strftime('%b %d, %Y')
    # Synchronize Hit Ratio directly to the Audit Table display
     # We count positive returns from the exact same dataframe the table uses
    # Filter out rows where returns are exactly zero (holidays/non-trading days)
