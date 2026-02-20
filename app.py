@@ -241,6 +241,17 @@ if output:
     kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
 
+    # --- THE CLEANEST UI (NO DELTA = NO ARROWS) ---
+    m1.metric("Ann. Return", f"{ann_ret:.2%}")
+    m2.metric("Sharpe", f"{sharpe:.2f}")
+    m3.metric("Max DD", f"{data['Drawdown'].min():.2%}")
+    m4.metric("Daily Vol", f"{data['Strategy_Ret'].std() * np.sqrt(252):.2%}")
+    m5.metric("Hit Ratio", f"{hit_ratio_sync:.0%}")
+    
+    # We put the W/L ratio in a small caption below OR the label.
+    # By NOT passing 'delta=', the arrow is physically impossible.
+    m6.metric(label=f"Kelly (W/L: {win_loss_ratio:.2f})", value=f"{safe_kelly:.0%}")
+
     # --- ZERO ARROW SOLUTION ---
     # We move W/L into the label and remove delta entirely.
     # This is the only way to guarantee 0 arrows in Streamlit.
