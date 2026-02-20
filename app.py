@@ -174,8 +174,11 @@ st.markdown("<p style='text-align: center; color: #5f6368; font-weight: 500;'>In
 with st.sidebar:
     st.header("Terminal Config")
     if st.button("🔄 Force Data Refresh"):
+    with st.spinner("Fetching live data from Stooq, FRED, and Yahoo..."):
         st.cache_data.clear()
-        st.session_state.last_refresh = datetime.now().strftime("%b %d, %H:%M:%S")
+        # This tells the loader to actually run the 'sync_data' code
+        df = load_raw_data(force_sync=True) 
+        st.success("Hugging Face Dataset Updated!")
         st.rerun()
 
     st.caption(f"✨ Last sync: {st.session_state.last_refresh}")
