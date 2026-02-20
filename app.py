@@ -255,9 +255,7 @@ if output:
     # ========================================================
     # 📈 INSERT THE GRAPH CODE BELOW THIS LINE
     # ========================================================
-    
-    st.markdown("---")
-    # --- PERFORMANCE GRAPH (FULL WIDTH) ---
+   # --- PERFORMANCE GRAPH ---
     st.markdown("---")
     st.subheader("Performance Comparison (Base 100)")
 
@@ -273,14 +271,9 @@ if output:
     # 2. Charting Logic
     import plotly.graph_objects as go
     fig = go.Figure()
-
-    # Strategy: Solid Cyan
     fig.add_trace(go.Scatter(x=data.index, y=data["Strategy_Norm"], name='Strategy', line=dict(color='#00FFCC', width=3)))
-    # SPY: Dashed Red
     fig.add_trace(go.Scatter(x=data.index, y=data["SPY_Norm"], name='SPY', line=dict(color='#FF4B4B', width=1.5, dash='dash')))
-    # AGG: Dotted Orange
     fig.add_trace(go.Scatter(x=data.index, y=data["AGG_Norm"], name='AGG', line=dict(color='#FFA500', width=1.5, dash='dot')))
-
     fig.update_layout(template="plotly_dark", hovermode="x unified", height=450, margin=dict(l=0, r=0, t=30, b=0))
     st.plotly_chart(fig, use_container_width=True)
 
@@ -291,7 +284,6 @@ if output:
     audit_display = output["audit"].copy().sort_index(ascending=False)
     audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
 
-    # Color logic: Green for gains, Red for losses
     def color_returns(val):
         color = '#228B22' if val > 0 else '#FF4B4B' if val < 0 else '#808080'
         return f'color: {color}'
@@ -299,31 +291,10 @@ if output:
     styled_audit = audit_display.head(20).style.format({"Daily_Return": "{:.2%}"}).applymap(color_returns, subset=['Daily_Return'])
     st.dataframe(styled_audit, use_container_width=True)
 
-  # --- DYNAMIC AUDIT & METHODOLOGY SECTION ---
+    # --- DYNAMIC METHODOLOGY SECTION (UNTOUCHED LOGIC) ---
     st.markdown("---")
-    
-    st.subheader("📋 Audit Trail")
-
-audit_display = output["audit"].copy().sort_index(ascending=False)
-audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
-
-# Helper function for conditional coloring
-def color_returns(val):
-    color = '#228B22' if val > 0 else '#FF4B4B' if val < 0 else '#808080'
-    return f'color: {color}'
-
-# Apply formatting and coloring
-styled_audit = audit_display.head(20).style.format({
-    "Daily_Return": "{:.2%}"
-}).applymap(color_returns, subset=['Daily_Return'])
-
-st.dataframe(styled_audit, use_container_width=True)
-    st.markdown("---")
-    
-    # 2. Methodology gets the full width below it for better readability
     st.subheader("🔬 Methodology & Engine Logic")
     
-    # Your original dictionary - UNTOUCHED
     methods = {
         "Option A": "**Wavelet-SVR:** Utilizes Wavelet transforms to denoise price data before SVR identifies non-linear regression boundaries.",
         "Option B": "**SVR-PPO:** Support Vector Regression gated by a Proximal Policy Optimization agent to stabilize weight updates.",
