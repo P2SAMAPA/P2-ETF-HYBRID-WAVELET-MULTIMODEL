@@ -8,9 +8,11 @@ from models.engine import MomentumEngine
 
 # Institutional UI Configuration - White Background
 st.set_page_config(page_title="P2 ETF WAVELET SVR PPO MODEL", layout="wide", initial_sidebar_state="collapsed")
-# Line 12: Initialize refresh timestamp in session state
+
+# Initialize refresh timestamp in session state
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = "Never (Initial Load)"
+
 # Professional Styling for Metrics and Layout
 st.markdown("""
     <style>
@@ -59,7 +61,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     asset_history = []
     threshold = 0.0015 if "Option B" in model_choice else 0.0
     
-    # --- NEW: Peak Tracking Variables ---
+    # --- Peak Tracking Variables ---
     peak_price_since_entry = 0.0
     stop_triggered = False
 
@@ -67,21 +69,16 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         daily_preds = pred_df.loc[date]
         best_ticker = daily_preds.idxmax()
         
-        # 1. Get the Raw SVR Signal
         signal_asset = best_ticker if daily_preds.max() > threshold else "CASH"
         
-        # 2. Check Trailing Stop if we are currently holding an ETF
         if current_asset != "CASH":
             current_price = raw_df.loc[date, current_asset]
             peak_price_since_entry = max(peak_price_since_entry, current_price)
-            
             if current_price < (peak_price_since_entry * 0.90): # 10% Stop
                 stop_triggered = True
         
-        # 3. Decision Logic
         if stop_triggered:
             new_asset = "CASH"
-            # Reset stop only if the model points to a DIFFERENT asset
             if signal_asset != current_asset and signal_asset != "CASH":
                 stop_triggered = False
                 new_asset = signal_asset
@@ -91,19 +88,16 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
             if new_asset != current_asset and new_asset != "CASH":
                 peak_price_since_entry = raw_df.loc[date, new_asset]
 
-        # 4. Execute Trade (T-Costs)
         if new_asset != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = new_asset
         
-        # Cash Return from 3-Month T-Bill
         rf_daily = (raw_df.loc[date, "TBILL_3M"] / 100) / 252
         day_ret = rf_daily if current_asset == "CASH" else raw_df.loc[date, f"{current_asset}_Ret"]
         equity *= (1 + day_ret)
         strat_rets.append(day_ret)
         asset_history.append(current_asset)
 
-    # Metrics Calculation
     res = pd.DataFrame(index=oos_idx)
     res["Strategy_Ret"] = strat_rets
     res["Equity"] = (pd.Series(strat_rets, index=oos_idx).add(1).cumprod() * 100)
@@ -114,26 +108,23 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     for b in ["SPY", "AGG"]:
         res[b] = (raw_df.loc[oos_idx, f"{b}_Ret"].add(1).cumprod() * 100)
 
-    # Date awareness for target signal
-    last_dt = oos_idx[-1]
-    # Force the date to look forward from the actual current day
     today = datetime.now()
-    # If past market close (4 PM), look to tomorrow, otherwise look at today
     next_mkt = today + timedelta(days=1) if today.hour >= 16 else today
-    
-    # Skip weekends
     while next_mkt.weekday() >= 5:
         next_mkt += timedelta(days=1)
 
-    # Calculate Confidence: How much higher is the signal than the threshold?
+    # Dynamic Conviction Logic
     last_preds = pred_df.iloc[-1]
     best_signal = last_preds.max()
-    # Normalize: If signal is 2x the threshold, we call it 100% confidence
-    confidence_val = min(1.0, best_signal / (threshold * 2)) if threshold > 0 else 0.85
+    if threshold > 0:
+        confidence_val = min(1.0, best_signal / (threshold * 2))
+    else:
+        confidence_val = min(1.0, abs(best_signal) / 0.01)
+    confidence_val = max(0.42, confidence_val)
 
     return {
         "df": res,
-        "audit": pd.DataFrame({"Allocation": asset_history, "Daily_Return": strat_rets}, index=oos_idx), # Changed: Pass full audit for UI filtering
+        "audit": pd.DataFrame({"Allocation": asset_history, "Daily_Return": strat_rets}, index=oos_idx),
         "target": asset_history[-1],
         "confidence": confidence_val,
         "next_date": next_mkt.strftime('%A, %b %d, %Y')
@@ -149,11 +140,9 @@ with st.sidebar:
     st.header("Terminal Config")
     if st.button("🔄 Force Data Refresh"):
         st.cache_data.clear()
-        # Update the state variable before rerunning
         st.session_state.last_refresh = datetime.now().strftime("%b %d, %H:%M:%S")
         st.rerun()
 
-    # This line ensures the date stays visible in the sidebar
     st.caption(f"✨ Last sync: {st.session_state.last_refresh}")
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Model Logic", ["Option A (Pure SVR)", "Option B (SVR + PPO)"])
@@ -164,10 +153,8 @@ output = run_professional_backtest(s_yr, opt, costs)
 if output:
     data = output["df"]
     
-   
     # ROW 1: PRIMARY TARGET SIGNAL
     conf_color = "#2e7d32" if output['confidence'] > 0.7 else "#f57c00"
-    
     st.markdown(f"""
         <div style="background-color: #f1f8e9; padding: 30px; border-radius: 12px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
             <p style="margin:0; color: #2e7d32; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; font-weight: 700;">
@@ -176,10 +163,12 @@ if output:
             <h1 style="margin:5px 0; font-size: 100px; color: #1b5e20; font-family: 'Courier New', monospace; font-weight: 900;">
                 {output['target']}
             </h1>
-            <div style="width: 200px; margin: 0 auto;">
-                <p style="margin:0; font-size: 12px; color: {conf_color}; font-weight: bold;">SIGNAL CONVICTION: {output['confidence']:.0%}</p>
-                <div style="background-color: #e0e0e0; border-radius: 10px; height: 8px; width: 100%;">
-                    <div style="background-color: {conf_color}; height: 8px; width: {output['confidence']*100}%; border-radius: 10px;"></div>
+            <div style="width: 240px; margin: 0 auto;">
+                <p style="margin:0; font-size: 12px; color: {conf_color}; font-weight: bold; text-transform: uppercase;">
+                    Signal Conviction: {output['confidence']:.0%}
+                </p>
+                <div style="background-color: #e0e0e0; border-radius: 10px; height: 10px; width: 100%; margin-top: 5px;">
+                    <div style="background-color: {conf_color}; height: 10px; width: {output['confidence']*100}%; border-radius: 10px;"></div>
                 </div>
             </div>
         </div>
@@ -192,67 +181,41 @@ if output:
     ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
     sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
     max_dd = data["Drawdown"].min()
-   # Find the worst daily return and the specific date it happened
     max_daily_loss = data["Strategy_Ret"].min()
     worst_day_date = data["Strategy_Ret"].idxmin().strftime('%b %d, %Y')
-   # Synchronize Hit Ratio directly to the Audit Table display
-    # We count positive returns from the exact same dataframe the table uses
-   # Filter out rows where returns are exactly zero (holidays/non-trading days)
-    audit_data = output["audit"][output["audit"]["Daily_Return"] != 0].tail(15)
-    positive_days = (audit_data["Daily_Return"] > 0).sum()
-   # Filter out rows where returns are zero (holidays)
-    audit_data = output["audit"][output["audit"]["Daily_Return"] != 0].tail(15)
-    
-    # Remove timestamps from the Date index for a cleaner look
-    audit_data.index = audit_data.index.date
-    
-    # Calculate Hit Ratio from the filtered trading days only
-    positive_days = (audit_data["Daily_Return"] > 0).sum()
-    hit_ratio_sync = positive_days / len(audit_data) if len(audit_data) > 0 else 0
 
-    # UI Metrics
+    # Audit Trail Sync
+    audit_data = output["audit"][output["audit"]["Daily_Return"] != 0].tail(15)
+    audit_data.index = audit_data.index.date
+    hit_ratio_sync = (audit_data["Daily_Return"] > 0).sum() / len(audit_data) if len(audit_data) > 0 else 0
+
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
     m3.metric("Max Drawdown (P-T)", f"{max_dd:.2%}")
-    # Display the loss with the date as the sub-label (delta)
     m4.metric("Max DD (Daily)", f"{max_daily_loss:.2%}", help=f"Occurred on {worst_day_date}")
-    # Alternatively, if you want the date visible right under the number:
-    # m4.write(f"<p style='font-size:10px; color:grey; margin-top:-15px;'>{worst_day_date}</p>", unsafe_allow_html=True)
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
+
     # ROW 3: EQUITY CHART
     st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance: Strategy vs. SPY Benchmark</h3>", unsafe_allow_html=True)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=data.index, y=data["Equity"], name="Eagle Strategy", line=dict(color='#1a73e8', width=3)))
     fig.add_trace(go.Scatter(x=data.index, y=data["SPY"], name="SPY (Re-indexed)", line=dict(color='#9aa0a6', dash='dot')))
-    fig.update_layout(
-        template="plotly_white", 
-        height=480, 
-        margin=dict(l=0,r=0,t=0,b=0), 
-        hovermode="x unified",
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
-    )
+    fig.update_layout(template="plotly_white", height=480, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified", legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
     st.plotly_chart(fig, use_container_width=True)
 
- # ROW 4: AUDIT TABLE & METHODOLOGY
+    # ROW 4: AUDIT TABLE & METHODOLOGY
     col_left, col_right = st.columns([1.2, 1])
     
     with col_left:
         st.subheader("📋 15-Day Strategy Audit Trail")
-        
         def style_returns(val):
             color = '#1b5e20' if val > 0 else '#b71c1c' if val < 0 else '#5f6368'
             return f'color: {color}; font-weight: bold;'
         
-        # MOVED INSIDE: This must be indented to stay in the left column
         st.dataframe(
             audit_data.style.format({"Daily_Return": "{:.2%}"}).applymap(style_returns, subset=['Daily_Return']),
-            use_container_width=True, 
-            height=560
+            use_container_width=True, height=560
         )
-
-    with col_right:
-        st.subheader("🔬 Methodology Overview")
-        # ... (keep your existing st.markdown code here)
 
     with col_right:
         st.subheader("🔬 Methodology Overview")
