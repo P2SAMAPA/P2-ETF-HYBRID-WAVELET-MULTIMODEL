@@ -207,10 +207,10 @@ if output:
         </div>
     """, unsafe_allow_html=True)
 
-   # --- METRICS CALCULATIONS ---
+  # --- METRICS CALCULATIONS ---
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     
-    # Calculate Core Performance Stats (Fixes NameError)
+    # Calculate Core Performance Stats
     excess = data["Strategy_Ret"] - data["RF"]
     ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
     sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
@@ -225,18 +225,34 @@ if output:
     kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
 
-    # UI LOGIC FOR KELLY BOX (FIXED COLOR & ARROW)
+    # --- THE COLOR & ARROW FIX ---
+    # 1. Determine Arrow Direction based on Capital Allocation (Kelly Recommendation)
     k_arrow = "▲" if safe_kelly > 0 else "▼"
-    # "normal" = Green for Up, Red for Down. "inverse" = Red for Up, Green for Down.
-    # We use normal if W/L is good (>=1), and inverse if W/L is bad (<1) to force Red.
-    k_col = "normal" if win_loss_ratio >= 1.0 else "inverse"
+    
+    # 2. Determine Color:
+    # We want GREEN if W/L > 1.0 (Profitable)
+    # We want RED if W/L < 1.0 (Unprofitable)
+    # Streamlit "normal" makes positive delta Green. 
+    # Streamlit "inverse" makes positive delta Red.
+    # Since our delta string is "▲ 1.18 W/L" (positive), we use "normal" for Green and "inverse" for Red.
+    if win_loss_ratio >= 1.0:
+        k_col = "normal"  # This will make the positive W/L ratio GREEN
+    else:
+        k_col = "inverse" # This will make the positive W/L ratio RED
 
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
     m3.metric("Max Drawdown (P-T)", f"{data['Drawdown'].min():.2%}")
     m4.metric("Max DD (Daily)", f"{data['Strategy_Ret'].min():.2%}")
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
-    m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=f"{k_arrow} {win_loss_ratio:.2f} W/L", delta_color=k_col)
+    
+    # Applying the explicit color and arrow logic here
+    m6.metric(
+        label="Kelly Recco", 
+        value=f"{safe_kelly:.0%}", 
+        delta=f"{k_arrow} {win_loss_ratio:.2f} W/L", 
+        delta_color=k_col
+    )
 
     # --- EQUITY CHART ---
     st.markdown("<h3 style='margin-top: 25px;'>Cumulative Performance</h3>", unsafe_allow_html=True)
