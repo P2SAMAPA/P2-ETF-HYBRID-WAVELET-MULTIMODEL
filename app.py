@@ -8,7 +8,9 @@ from models.engine import MomentumEngine
 
 # Institutional UI Configuration - White Background
 st.set_page_config(page_title="P2 ETF WAVELET SVR PPO MODEL", layout="wide", initial_sidebar_state="collapsed")
-
+# Line 12: Initialize refresh timestamp in session state
+if "last_refresh" not in st.session_state:
+    st.session_state.last_refresh = "Never (Initial Load)"
 # Professional Styling for Metrics and Layout
 st.markdown("""
     <style>
