@@ -213,12 +213,12 @@ if output:
   # --- PERFORMANCE METRICS ---
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     
-    # Calculate Core Performance Stats
+    # Calculate Stats
     excess = data["Strategy_Ret"] - data["RF"]
     ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
     sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
     
-    # Kelly & Win/Loss Math
+    # Kelly & Win/Loss Logic
     pos_rets = [r for r in strat_rets if r > 0]
     neg_rets = [abs(r) for r in strat_rets if r < 0]
     win_loss_ratio = (np.mean(pos_rets) / np.mean(neg_rets)) if (pos_rets and neg_rets) else 1.0
@@ -228,27 +228,18 @@ if output:
     kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
 
-    # --- THE ARROWLESS COLOR LOGIC ---
-    # We remove the "▲/▼" characters entirely.
-    # W/L >= 1.0 is Green (normal), W/L < 1.0 is Red (inverse).
+    # --- THE CLEANEST FIX: ZERO ARROWS ---
     k_col = "normal" if win_loss_ratio >= 1.0 else "inverse"
+    
+    # We use \u2800 (a Braille blank) to trick Streamlit into showing no arrow
+    clean_delta = f"\u2800 {win_loss_ratio:.2f} W/L"
 
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
     m3.metric("Max Drawdown", f"{data['Drawdown'].min():.2%}")
     m4.metric("Daily Vol", f"{data['Strategy_Ret'].std() * np.sqrt(252):.2%}")
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
-    
-   # Force the delta to be a string that Streamlit cannot "interpret" as a direction
-    # We use a special thin-space character \u2009 to block the arrow
-    clean_delta = f"\u2009 {win_loss_ratio:.2f} W/L"
-
-    m6.metric(
-        label="Kelly Recco", 
-        value=f"{safe_kelly:.0%}", 
-        delta=clean_delta, 
-        delta_color=k_col
-    )
+    m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=clean_delta, delta_color=k_col)
 
     # --- DYNAMIC METHODOLOGY SECTION ---
     st.markdown("---")
