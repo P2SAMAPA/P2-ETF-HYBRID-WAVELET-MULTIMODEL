@@ -113,20 +113,20 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     while next_mkt.weekday() >= 5:
         next_mkt += timedelta(days=1)
 
-   # Dynamic Conviction Logic - Calibrated for higher volatility
+   # Universal Conviction: Compare the BEST signal to the AVERAGE of all signals
     last_preds = pred_df.iloc[-1]
     best_signal = last_preds.max()
+    avg_signal = last_preds.mean()
     
-    if threshold > 0:
-        # For Option B: Measure against 3x the hurdle rate
-        confidence_val = min(1.0, best_signal / (threshold * 3))
-    else:
-        # For Option A: Measure against a 3% expected daily move benchmark
-        # This prevents the 100% "ceiling" for standard 1-2% predictions
-        confidence_val = min(1.0, abs(best_signal) / 0.03) 
+    # How much better is the best asset than the average of the others?
+    # This creates a "Spread." If the spread is large, conviction is high.
+    spread = abs(best_signal - avg_signal)
     
-    # Lowered baseline to 35% to show more movement in the bar
-    confidence_val = max(0.35, confidence_val)
+    # We calibrate the spread against a 2% volatility target
+    confidence_val = min(1.0, spread / 0.02)
+    
+    # Final clamping to ensure visual movement
+    confidence_val = max(0.38, min(0.96, confidence_val))
 
     return {
         "df": res,
