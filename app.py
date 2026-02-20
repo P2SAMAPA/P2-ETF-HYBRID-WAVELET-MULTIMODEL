@@ -200,23 +200,26 @@ if output:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    # ROW 4: AUDIT TABLE & METHODOLOGY
+ # ROW 4: AUDIT TABLE & METHODOLOGY
     col_left, col_right = st.columns([1.2, 1])
     
     with col_left:
         st.subheader("📋 15-Day Strategy Audit Trail")
+        
         def style_returns(val):
             color = '#1b5e20' if val > 0 else '#b71c1c' if val < 0 else '#5f6368'
             return f'color: {color}; font-weight: bold;'
         
-      
+        # MOVED INSIDE: This must be indented to stay in the left column
+        st.dataframe(
+            audit_data.style.format({"Daily_Return": "{:.2%}"}).applymap(style_returns, subset=['Daily_Return']),
+            use_container_width=True, 
+            height=560
+        )
 
-    # Ensure this line starts at the same indentation level as st.header
-    st.dataframe(
-    audit_data.style.format({"Daily_Return": "{:.2%}"}).applymap(style_returns, subset=['Daily_Return']),
-    use_container_width=True, 
-    height=560
-)
+    with col_right:
+        st.subheader("🔬 Methodology Overview")
+        # ... (keep your existing st.markdown code here)
 
     with col_right:
         st.subheader("🔬 Methodology Overview")
