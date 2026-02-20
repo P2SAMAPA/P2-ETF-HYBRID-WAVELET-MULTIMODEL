@@ -275,28 +275,28 @@ if output:
             use_container_width=True, height=560
         )
 
-    with col_right:
-        st.subheader("🔬 Methodology Overview")
-        
-        if "A2C" in opt:
-            rl_desc = "**RL Engine:** A2C (Advantage Actor-Critic) utilizes a synchronous policy gradient to maximize the 'Advantage' of a trade relative to a baseline risk-free return."
-        elif "PPO" in opt:
-            rl_desc = "**RL Engine:** PPO (Proximal Policy Optimization) utilizes a clipped objective function to ensure stable, conservative strategy updates."
-        else:
-            rl_desc = "**RL Engine:** None (Pure SVR). Allocation is based solely on the highest raw SVR point-prediction."
+   with col_right:
+    st.subheader("🔬 Methodology & Engine Logic")
+    
+    # Context-aware technical description
+    if "Option D" in opt:
+        logic_desc = "Hybrid Alpha-Advantage gating. SVR generates directional bias, while A2C filters exposure based on 1.5σ relative conviction."
+    elif "Option B" in opt:
+        logic_desc = "Directional SVR with PPO Stability. Uses a fixed 15bps hurdle to ensure entries occur only during high-momentum regimes."
+    elif "Option C" in opt:
+        logic_desc = "Pure Policy Gradient execution. Learns optimal asset weights by maximizing the synchronous Advantage Actor-Critic (A2C) objective function."
+    else:
+        logic_desc = "Standard non-linear SVR. Focuses on raw point-prediction for maximum market participation."
 
-        st.markdown(f"""
-        **Algorithm:** Non-linear SVR with Wavelet Denoising for high-frequency signal extraction.
-        
-        **Strategy Logic:**
-        - **{opt}:** { 'Hybrid mode using SVR for prediction and RL for execution filtering.' if 'SVR-' in opt else 'Pure-play model focusing on ' + opt.split('-')[-1] + ' logic.' }
-        
-        **Risk & Execution:**
-        - {rl_desc}
-        - **Liquidity Buffer:** 'CASH' positions yield the daily **3-Month T-Bill** rate.
-        - **Kelly Sizing:** Suggests capital allocation based on the 15-day Edge Profile (Half-Kelly).
-        
-        **System Integrity:**
-        - **Lookback History:** {len(data)} trading sessions analyzed in this window.
-        - **Next Signal Window:** Active for market open on {output['next_date']}.
-        """)
+    st.markdown(f"""
+    **Architecture:** Wavelet-denoised SVR integrated with Reinforcement Learning (RL) execution layers. 
+    
+    **Core Logic:**
+    * **Strategy:** {logic_desc}
+    * **Signal Extraction:** Dual-filter Wavelet Transform decomposes price action into high-fidelity trend components, removing intraday noise before training.
+    
+    **Risk Framework:**
+    * **Dynamic Stop-Loss:** Active 10% trailing drawdown protection calibrated to peak equity since trade inception.
+    * **Kelly Criterion:** 15-day 'Edge' profiling determines optimal capital allocation via Half-Kelly sizing ($f^*$).
+    * **Liquidity Gate:** Strategy reverts to **CASH** (3-Month T-Bill benchmark) when engine conviction falls below selection thresholds.
+    """)
