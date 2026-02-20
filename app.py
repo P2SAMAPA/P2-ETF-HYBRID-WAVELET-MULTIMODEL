@@ -257,42 +257,47 @@ if output:
     # ========================================================
     
     st.markdown("---")
+    # --- PERFORMANCE GRAPH (FULL WIDTH) ---
+    st.markdown("---")
     st.subheader("Performance Comparison (Base 100)")
 
-# ... (keep normalization logic from previous step)
+    # 1. Normalization Logic
+    spy_start = data["SPY"].iloc[0]
+    agg_start = data["AGG"].iloc[0]
+    equity_start = data["Equity"].iloc[0]
 
-fig = go.Figure()
+    data["SPY_Norm"] = (data["SPY"] / spy_start) * 100
+    data["AGG_Norm"] = (data["AGG"] / agg_start) * 100
+    data["Strategy_Norm"] = (data["Equity"] / equity_start) * 100
 
-# Strategy: Solid Thick Cyan
-fig.add_trace(go.Scatter(
-    x=data.index, y=data["Strategy_Norm"], 
-    mode='lines', name='Strategy', 
-    line=dict(color='#00FFCC', width=3)
-))
+    # 2. Charting Logic
+    import plotly.graph_objects as go
+    fig = go.Figure()
 
-# SPY: Dashed Red
-fig.add_trace(go.Scatter(
-    x=data.index, y=data["SPY_Norm"], 
-    mode='lines', name='S&P 500 (SPY)', 
-    line=dict(color='#FF4B4B', width=1.5, dash='dash')
-))
+    # Strategy: Solid Cyan
+    fig.add_trace(go.Scatter(x=data.index, y=data["Strategy_Norm"], name='Strategy', line=dict(color='#00FFCC', width=3)))
+    # SPY: Dashed Red
+    fig.add_trace(go.Scatter(x=data.index, y=data["SPY_Norm"], name='SPY', line=dict(color='#FF4B4B', width=1.5, dash='dash')))
+    # AGG: Dotted Orange
+    fig.add_trace(go.Scatter(x=data.index, y=data["AGG_Norm"], name='AGG', line=dict(color='#FFA500', width=1.5, dash='dot')))
 
-# AGG: Dotted Orange
-fig.add_trace(go.Scatter(
-    x=data.index, y=data["AGG_Norm"], 
-    mode='lines', name='Bonds (AGG)', 
-    line=dict(color='#FFA500', width=1.5, dash='dot')
-))
+    fig.update_layout(template="plotly_dark", hovermode="x unified", height=450, margin=dict(l=0, r=0, t=30, b=0))
+    st.plotly_chart(fig, use_container_width=True)
 
-fig.update_layout(
-    template="plotly_dark", 
-    hovermode="x unified", 
-    height=450,
-    margin=dict(l=0, r=0, t=30, b=0),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-)
+    # --- COLOR-CODED AUDIT TRAIL ---
+    st.markdown("---")
+    st.subheader("📋 Audit Trail")
 
-st.plotly_chart(fig, use_container_width=True)
+    audit_display = output["audit"].copy().sort_index(ascending=False)
+    audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
+
+    # Color logic: Green for gains, Red for losses
+    def color_returns(val):
+        color = '#228B22' if val > 0 else '#FF4B4B' if val < 0 else '#808080'
+        return f'color: {color}'
+
+    styled_audit = audit_display.head(20).style.format({"Daily_Return": "{:.2%}"}).applymap(color_returns, subset=['Daily_Return'])
+    st.dataframe(styled_audit, use_container_width=True)
 
   # --- DYNAMIC AUDIT & METHODOLOGY SECTION ---
     st.markdown("---")
