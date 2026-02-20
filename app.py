@@ -242,16 +242,23 @@ if output:
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
 
     # --- THE CLEANEST UI (NO DELTA = NO ARROWS) ---
+    # Calculation for m4 must happen before the metric is called
+    worst_day_val = data['Strategy_Ret'].min()
+    worst_day_date = data['Strategy_Ret'].idxmin().strftime('%m/%d')
+
     m1.metric("Ann. Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe", f"{sharpe:.2f}")
     m3.metric("Max DD", f"{data['Drawdown'].min():.2%}")
-    m4.metric(
-        label="Max DD (Daily)", 
-        value=f"{worst_day_val:.2%}", 
-        delta=f"on {worst_day_date}", 
-        delta_color="inverse"
-    m5.metric("Hit Ratio", f"{hit_ratio_sync:.0%}")
     
+    # Restored Max DD (Daily) with Date
+    m4.metric(
+        label="Max DD (Daily)",
+        value=f"{worst_day_val:.2%}",
+        delta=f"on {worst_day_date}",
+        delta_color="inverse"
+    )
+    
+    m5.metric("Hit Ratio", f"{hit_ratio_sync:.0%}")
     # We put the W/L ratio in a small caption below OR the label.
     # By NOT passing 'delta=', the arrow is physically impossible.
     m6.metric(label=f"Kelly (W/L: {win_loss_ratio:.2f})", value=f"{safe_kelly:.0%}")
