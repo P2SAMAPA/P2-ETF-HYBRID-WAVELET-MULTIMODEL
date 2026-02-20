@@ -75,7 +75,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     if "Option B" in model_choice:
         threshold = 0.0015  # Conservative (PPO)
     elif "Option D" in model_choice:
-        threshold = 0.0005  # Moderate (SVR-A2C Advantage)
+        threshold = 0.0010  # Moderate (SVR-A2C Advantage)
     else:
         threshold = 0.0     # Aggressive (Pure SVR or Pure A2C)
 
