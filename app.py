@@ -244,8 +244,19 @@ if output:
 
     col_left, col_right = st.columns([1.2, 1])
     with col_left:
+        with col_left:
         st.subheader("📋 Audit Trail")
-        st.dataframe(audit_data.style.format({"Daily_Return": "{:.2%}"}).map(lambda x: f'color: {"#1b5e20" if x > 0 else "#b71c1c"}; font-weight: bold;', subset=['Daily_Return']), use_container_width=True, height=560)
+        # Explicitly grabbing latest rows and forcing index to string for refresh
+        audit_display = output["audit"].tail(20).copy()
+        audit_display.index = audit_display.index.strftime('%Y-%m-%d')
+        
+        st.dataframe(
+            audit_display.style.format({"Daily_Return": "{:.2%}"}).map(
+                lambda x: f'color: {"#1b5e20" if x > 0 else "#b71c1c"}; font-weight: bold;', 
+                subset=['Daily_Return']
+            ),
+            use_container_width=True, height=560
+        )
     with col_right:
         st.subheader("🔬 Methodology & Engine Logic")
         st.markdown("**Core Architecture:** Wavelet-denoised SVR integrated with multi-state Hidden Markov Models (HMM) and Bayesian Structural Filters.")
