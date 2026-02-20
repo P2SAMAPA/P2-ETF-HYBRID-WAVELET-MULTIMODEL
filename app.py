@@ -197,8 +197,12 @@ with st.sidebar:
     # ... rest of your sidebar code (slider, radio, etc.)
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Model Logic", [
-        "Option A - Wavelet-SVR", "Option B - Wavelet-SVR-PPO", "Option C - Wavelet-A2C", "Option D - Wavelet-SVR-A2C",
-        "Option E - Wavelet-HMM", "Option F - Wavelet-SVR-HMM", "Option G - Wavelet-BSTS", "Option H - Wavelet-SVR-BSTS"
+        "Option A - Wavelet-SVR", "Option B - Wavelet-SVR-PPO", "Option C - Wavelet-A2C", 
+        "Option D - Wavelet-SVR-A2C", "Option E - Wavelet-HMM", "Option F - Wavelet-SVR-HMM", 
+        "Option G - Wavelet-BSTS", "Option H - Wavelet-SVR-BSTS",
+        "Option I - Wavelet-CNN-LSTM", 
+        "Option J - Wavelet-SVR-CNN-LSTM", 
+        "Option K - Parallel-Dual-Stream"
     ])
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
@@ -317,6 +321,9 @@ if output:
         "Option F": "**SVR-HMM Fusion:** SVR identifies the target, but the HMM forces CASH if macro regime stability is low.",
         "Option G": "**BSTS Filter:** Bayesian Structural Time Series. Decomposes price action into trend, noise, and seasonal cycles.",
         "Option H": "**Wavelet-SVR-BSTS:** Triple ensemble. Denoises (Wavelet), Predicts (SVR), and Confirms trend (Bayesian)."
+        "Option I": "**Wavelet-CNN-LSTM:** Deep spatial-temporal extraction on denoised price signals via 1D-CNN and LSTM layers.",
+        "Option J": "**Wavelet-SVR-CNN-LSTM:** SVR establishes a baseline trend, while a CNN-LSTM residual model captures complex volatility spikes.",
+        "Option K": "**Parallel-Dual-Stream:** Dedicated neural pathways for Price Action and Macro Risk (HY Spreads/VIX) to prevent signal smearing."
     }
     
     active_logic = next((desc for key, desc in methods.items() if key in opt), "Ensemble Engine Execution")
