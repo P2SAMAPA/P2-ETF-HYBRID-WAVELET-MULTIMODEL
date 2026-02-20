@@ -283,7 +283,7 @@ if output:
             "Option E": "**HMM Regime:** A Gaussian Hidden Markov Model trained to identify latent market regimes (Bullish, Bearish, Sideways) by analyzing DXY and VIX volatility clusters.",
             "Option F": "**SVR-HMM:** Fusion model. SVR generates a signal, but it is vetoed (CASH) if the HMM detects a 'High Volatility' or 'Bearish' latent state.",
             "Option G": "**BSTS Filter:** Bayesian Structural Time Series. Decomposes the signal into Trend, Seasonality, and Regression components to find structural alpha.",
-            "Option H": "**Wavelet-BSTS:** Applies a Discrete Wavelet Transform (DWT) to denoise the price series before feeding the approximation coefficients into the BSTS trend engine."
+            "Option H": "**Wavelet-SVR-BSTS:** Applies a Discrete Wavelet Transform (DWT) to denoise the price series before feeding the approximation coefficients into the BSTS trend engine."
         }
         
         # Match current option from your sidebar
