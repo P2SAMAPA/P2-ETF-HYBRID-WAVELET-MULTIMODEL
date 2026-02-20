@@ -212,6 +212,7 @@ if output:
         </div>
     """, unsafe_allow_html=True)
 
+   # ROW 2: PERFORMANCE & RISK METRICS
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     
     # Logic for Kelly Score & Win-Loss Arrow
