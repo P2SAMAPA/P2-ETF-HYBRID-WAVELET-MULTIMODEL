@@ -259,4 +259,19 @@ if output:
         )
     with col_right:
         st.subheader("🔬 Methodology & Engine Logic")
-        st.markdown("**Core Architecture:** Wavelet-denoised SVR integrated with multi-state Hidden Markov Models (HMM) and Bayesian Structural Filters.")
+        if "Option A" in opt:
+            logic_desc = "Standard non-linear SVR. Focuses on raw point-prediction for maximum market participation."
+        elif "Option B" in opt:
+            logic_desc = "Directional SVR with PPO Stability. Uses a fixed 15bps hurdle to ensure entries occur only during high-momentum regimes."
+        elif "Option C" in opt:
+            logic_desc = "Pure Policy Gradient execution. Learns optimal asset weights by maximizing the synchronous Advantage Actor-Critic (A2C) objective function."
+        elif "Option D" in opt:
+            logic_desc = "Hybrid Alpha-Advantage gating. SVR generates directional bias, while A2C filters exposure based on 0.75σ relative conviction."
+        elif "Option E" in opt:
+            logic_desc = "Macro Regime Switching. Uses a Hidden Markov Model (HMM) to detect 3 latent market states (Bull, Bear, Volatile) based on DXY, VIX, and Credit Spreads."
+        elif "Option F" in opt:
+            logic_desc = "SVR-HMM Fusion. SVR provides the asset pick, but the HMM acts as a 'Risk-Off' circuit breaker, forcing CASH if the macro regime is unstable."
+        elif "Option G" in opt:
+            logic_desc = "Bayesian Structural Trend Selection. Uses BSTS to decompose price action into trend and noise, selecting assets with the highest 'Structural' probability."
+        elif "Option H" in opt:
+            logic_desc = "Wavelet-SVR-BSTS. SVR identifies the target, while a Bayesian Filter confirms if the trend is statistically significant (Confidence > 65%) before entry."
