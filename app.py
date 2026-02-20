@@ -212,18 +212,28 @@ if output:
         </div>
     """, unsafe_allow_html=True)
 
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
-    excess = data["Strategy_Ret"] - data["RF"]
-    ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
-    sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
+   m1, m2, m3, m4, m5, m6 = st.columns(6)
+    
+    # Logic for Kelly Score & Win-Loss Arrow
+    pos_rets = [r for r in strat_rets if r > 0]
+    neg_rets = [abs(r) for r in strat_rets if r < 0]
+    win_loss_ratio = (np.mean(pos_rets) / np.mean(neg_rets)) if (pos_rets and neg_rets) else 1.0
+    
+    # Half-Kelly Calculation
+    hit_ratio_sync = (pd.Series(strat_rets).tail(15) > 0).sum() / 15
+    p, b = hit_ratio_sync, win_loss_ratio
+    kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
+    safe_kelly = max(0, min(1.0, kelly_f * 0.5))
+    
+    # Delta Arrow Logic
+    k_arrow, k_col = ("▲", "normal") if safe_kelly > 0.4 else ("▼", "inverse")
+
     m1.metric("Annualized Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe Ratio", f"{sharpe:.2f}")
     m3.metric("Max Drawdown (P-T)", f"{data['Drawdown'].min():.2%}")
     m4.metric("Max DD (Daily)", f"{data['Strategy_Ret'].min():.2%}")
-    audit_data = output["audit"].tail(15)
-    audit_data.index = audit_data.index.date
-    m5.metric("Hit Ratio (15D)", f"{(audit_data['Daily_Return'] > 0).sum() / len(audit_data):.0%}")
-    m6.metric("Kelly Recco", "Safe Sizing")
+    m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
+    m6.metric("Kelly Recco", f"{safe_kelly:.0%}", delta=f"{k_arrow} {win_loss_ratio:.2f} W/L", delta_color=k_col)
 
     st.markdown("<h3 style='margin-top: 25px; margin-bottom: 10px;'>Cumulative Performance</h3>", unsafe_allow_html=True)
     fig = go.Figure()
