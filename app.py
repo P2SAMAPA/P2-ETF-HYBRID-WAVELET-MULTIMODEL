@@ -320,7 +320,7 @@ if output:
         "Option E": "**HMM Regime:** Gaussian Hidden Markov Model for detecting Bull/Bear regimes via VIX and DXY volatility clusters.",
         "Option F": "**SVR-HMM Fusion:** SVR identifies the target, but the HMM forces CASH if macro regime stability is low.",
         "Option G": "**BSTS Filter:** Bayesian Structural Time Series. Decomposes price action into trend, noise, and seasonal cycles.",
-        "Option H": "**Wavelet-SVR-BSTS:** Triple ensemble. Denoises (Wavelet), Predicts (SVR), and Confirms trend (Bayesian)."
+        "Option H": "**Wavelet-SVR-BSTS:** Triple ensemble. Denoises (Wavelet), Predicts (SVR), and Confirms trend (Bayesian).",
         "Option I": "**Wavelet-CNN-LSTM:** Deep spatial-temporal extraction on denoised price signals via 1D-CNN and LSTM layers.",
         "Option J": "**Wavelet-SVR-CNN-LSTM:** SVR establishes a baseline trend, while a CNN-LSTM residual model captures complex volatility spikes.",
         "Option K": "**Parallel-Dual-Stream:** Dedicated neural pathways for Price Action and Macro Risk (HY Spreads/VIX) to prevent signal smearing."
