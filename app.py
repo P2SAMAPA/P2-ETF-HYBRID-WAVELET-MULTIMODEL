@@ -7,7 +7,7 @@ from data.loader import load_raw_data
 from models.engine import MomentumEngine, A2CEngine
 
 # Institutional UI Configuration - White Background
-st.set_page_config(page_title="P2 ETF WAVELET SVR PPO MODEL", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="P2 ETF WAVELET SVR MULTI MODEL", layout="wide", initial_sidebar_state="collapsed")
 
 # Initialize refresh timestamp in session state
 if "last_refresh" not in st.session_state:
@@ -168,7 +168,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
 # ---------------------------------------------------------------------------
 # TERMINAL UI RENDERING
 # ---------------------------------------------------------------------------
-st.markdown("<h1 style='text-align: center; color: #1a73e8; margin-bottom: 0;'>🦅 P2 ETF WAVELET SVR PPO MODEL</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #1a73e8; margin-bottom: 0;'>🦅 P2 ETF WAVELET SVR MULTI MODEL</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #5f6368; font-weight: 500;'>Institutional Strategy Performance & Signal Console</p>", unsafe_allow_html=True)
 
 with st.sidebar:
@@ -290,7 +290,7 @@ if output:
         current_desc = next((v for k, v in methods.items() if k in opt), "Ensemble Engine")
 
         st.markdown(f"""
-        **Architecture:** Multi-Engine Ensemble (Wavelet + SVR + HMM/BSTS)
+        **Architecture:** Multi-Engine Ensemble (Wavelet + SVR + PPO + A2C + HMM/BSTS)
         
         **Current Model Logic:**
         * {current_desc}
