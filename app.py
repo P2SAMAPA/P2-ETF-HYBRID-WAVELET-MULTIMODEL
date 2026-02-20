@@ -243,16 +243,21 @@ if output:
 
     col_left, col_right = st.columns([1.2, 1])
     
-   # --- FIXED LAYOUT FOR AUDIT AND METHODOLOGY ---
+ fig.update_layout(template="plotly_white", height=480, margin=dict(l=0,r=0,t=0,b=0), hovermode="x unified")
+    st.plotly_chart(fig, use_container_width=True)
+
+    # --- FINAL LAYOUT SECTION ---
     col_left, col_right = st.columns([1.2, 1])
     
     with col_left:
         st.subheader("📋 Audit Trail")
-        # Ensure these lines are indented exactly 8 spaces from the margin
-        audit_display = output["audit"].tail(20).copy()
-        audit_display.index = audit_display.index.strftime('%Y-%m-%d')
+        # FORCE REFRESH: Capture the absolute tail of the processed audit data
+        # Using 25 rows to ensure we see the full week including Feb 19/20
+        audit_display = output["audit"].copy()
+        audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
+        
         st.dataframe(
-            audit_display.style.format({"Daily_Return": "{:.2%}"}).map(
+            audit_display.tail(25).style.format({"Daily_Return": "{:.2%}"}).map(
                 lambda x: f'color: {"#1b5e20" if x > 0 else "#b71c1c"}; font-weight: bold;', 
                 subset=['Daily_Return']
             ),
@@ -261,32 +266,28 @@ if output:
 
     with col_right:
         st.subheader("🔬 Methodology & Engine Logic")
-        # Logic description mapping
-        if "Option A" in opt:
-            logic_desc = "Standard non-linear SVR. Focuses on raw point-prediction for maximum market participation."
-        elif "Option B" in opt:
-            logic_desc = "Directional SVR with PPO Stability. Uses a fixed 15bps hurdle to ensure entries occur only during high-momentum regimes."
-        elif "Option C" in opt:
-            logic_desc = "Pure Policy Gradient execution. Learns optimal asset weights by maximizing the synchronous Advantage Actor-Critic (A2C) objective function."
-        elif "Option D" in opt:
-            logic_desc = "Hybrid Alpha-Advantage gating. SVR generates directional bias, while A2C filters exposure based on 0.75σ relative conviction."
-        elif "Option E" in opt:
-            logic_desc = "Macro Regime Switching. Uses a Hidden Markov Model (HMM) to detect 3 latent market states (Bull, Bear, Volatile) based on DXY, VIX, and Credit Spreads."
-        elif "Option F" in opt:
-            logic_desc = "SVR-HMM Fusion. SVR provides the asset pick, but the HMM acts as a 'Risk-Off' circuit breaker, forcing CASH if the macro regime is unstable."
-        elif "Option G" in opt:
-            logic_desc = "Bayesian Structural Trend Selection. Uses BSTS to decompose price action into trend and noise, selecting assets with the highest 'Structural' probability."
-        elif "Option H" in opt:
-            logic_desc = "Wavelet-SVR-BSTS. SVR identifies the target, while a Bayesian Filter confirms if the trend is statistically significant (Confidence > 65%) before entry."
-        else:
-            logic_desc = "Ensemble logic execution."
+        
+        # Methodology Mapping for all 8 varieties
+        mapping = {
+            "Option A": "Standard non-linear SVR. Focuses on raw point-prediction for maximum market participation.",
+            "Option B": "Directional SVR with PPO Stability. Uses a fixed 15bps hurdle to ensure entries occur only during high-momentum regimes.",
+            "Option C": "Pure Policy Gradient execution. Learns optimal asset weights by maximizing the Advantage Actor-Critic (A2C) objective.",
+            "Option D": "Hybrid Alpha-Advantage gating. SVR generates directional bias, while A2C filters exposure based on 0.75σ relative conviction.",
+            "Option E": "Macro Regime Switching. Uses a Hidden Markov Model (HMM) to detect 3 latent market states based on DXY, VIX, and Spreads.",
+            "Option F": "SVR-HMM Fusion. SVR provides the asset pick, but the HMM acts as a 'Risk-Off' circuit breaker during macro instability.",
+            "Option G": "Bayesian Structural Trend Selection. Uses BSTS to decompose price action into trend and noise components.",
+            "Option H": "Wavelet-SVR-BSTS. SVR identifies the target, while a Bayesian Filter confirms structural trend significance (Conf > 65%)."
+        }
+        
+        # Match current option to mapping
+        logic_desc = next((desc for opt_key, desc in mapping.items() if opt_key in opt), "Ensemble logic execution.")
 
         st.markdown(f"""
         **Architecture:** Multi-Engine Ensemble (Wavelet + SVR + HMM/BSTS)
         
         **Core Logic:**
         * **Active Strategy:** {logic_desc}
-        * **Macro Pillars:** Integrated DXY (Dollar Index), Yield Curve (T10Y2Y), and Credit Spreads (IG/HY).
+        * **Macro Pillars:** Integrated DXY, Yield Curve (T10Y2Y), and Credit Spreads (IG/HY).
         
         **Risk Framework:**
         * **Trailing Stop:** 10% Drawdown hard-stop from peak equity.
