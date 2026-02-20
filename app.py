@@ -140,7 +140,7 @@ st.markdown("<p style='text-align: center; color: #5f6368; font-weight: 500;'>In
 
 with st.sidebar:
     st.header("Terminal Config")
-   if st.button("🔄 Force Data Refresh"):
+    if st.button("🔄 Force Data Refresh"):
         st.cache_data.clear()
         # Update the state variable before rerunning
         st.session_state.last_refresh = datetime.now().strftime("%b %d, %H:%M:%S")
