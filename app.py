@@ -236,11 +236,14 @@ if output:
     m4.metric("Daily Vol", f"{data['Strategy_Ret'].std() * np.sqrt(252):.2%}")
     m5.metric("Hit Ratio (15D)", f"{hit_ratio_sync:.0%}")
     
-    # No arrows in the delta string
+   # Force the delta to be a string that Streamlit cannot "interpret" as a direction
+    # We use a special thin-space character \u2009 to block the arrow
+    clean_delta = f"\u2009 {win_loss_ratio:.2f} W/L"
+
     m6.metric(
         label="Kelly Recco", 
         value=f"{safe_kelly:.0%}", 
-        delta=f"{win_loss_ratio:.2f} W/L", 
+        delta=clean_delta, 
         delta_color=k_col
     )
 
