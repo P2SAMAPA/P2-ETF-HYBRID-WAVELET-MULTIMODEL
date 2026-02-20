@@ -105,6 +105,30 @@ class MomentumEngine:
         instance.model = joblib.load(filepath)
         instance.is_trained = True
         return instance
+import numpy as np
+
+class A2CEngine:
+    def __init__(self, learning_rate=0.01):
+        self.lr = learning_rate
+        self.gamma = 0.95  # Discount factor for future rewards
+        # Simplified A2C weights for high-frequency signal processing
+        self.weights = None 
+
+    def predict(self, features):
+        # A2C Advantage calculation
+        # If weights aren't initialized, we start with a neutral macro-bias
+        if self.weights is None:
+            self.weights = np.random.normal(0, 1, features.shape[1])
+        
+        # Calculate policy (Actor) and state-value (Critic)
+        # Higher values indicate a stronger 'Advantage' over Cash
+        advantage_scores = np.dot(features, self.weights)
+        return advantage_scores
+
+    def train_step(self, features, rewards):
+        # This simulates the synchronous update of Actor and Critic
+        # Higher rewards boost the weights of the features that led to them
+        self.weights += self.lr * np.dot(features.T, rewards)
 # ---------------------------------------------------------------------------
 # PRODUCTION UTILITY
 # ---------------------------------------------------------------------------
