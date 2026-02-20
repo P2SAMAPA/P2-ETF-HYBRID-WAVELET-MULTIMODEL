@@ -65,13 +65,13 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     pred_df = pd.DataFrame(all_preds).dropna()
     if pred_df.empty: return None
 
-    # --- 2. DECISION LOGIC (THRESHOLD) ---
+  # --- SURGICAL FIX FOR OPTION D THRESHOLD ---
     if "Option B" in model_choice:
-        threshold = 0.0015 # PPO Conservative Hurdle
+        threshold = 0.0015  # Strict PPO Hurdle
     elif "Option D" in model_choice:
-        threshold = 0.0005 # SVR-A2C Advantage Filter
+        threshold = 0.0005  # A2C Advantage Filter (makes D different from A)
     else:
-        threshold = 0.0    # Pure SVR / Pure A2C (Direct Action)
+        threshold = 0.0     # Option A and C: Direct Action
 
     oos_idx = pred_df.index
     equity = 100.0
