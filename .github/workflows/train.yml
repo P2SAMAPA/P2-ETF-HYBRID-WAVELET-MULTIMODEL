@@ -13,6 +13,10 @@ on:
 jobs:
   build-and-train:
     runs-on: ubuntu-latest
+    # --- RECTIFIED: GRANT WRITE ACCESS TO REPO ---
+    permissions:
+      contents: write
+    # ----------------------------------------------
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -38,18 +42,12 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python train_models.py
 
-      # --- RECTIFIED: FORCE ADD IGNORED MODELS ---
       - name: Commit and Push Models to GitHub
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Added -f to bypass the .gitignore rule for these specific files
           git add -f models/*.h5 models/*.pkl
-          
-          # Only commit if there are actually changes to the models
           git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-update trained models [skip ci]" && git push)
-      # ----------------------------------------------------
 
       - name: Sync Everything to Hugging Face
         env:
