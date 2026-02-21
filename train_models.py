@@ -1,47 +1,62 @@
 import os
 import numpy as np
 import pandas as pd
-from data.processor import load_raw_data, build_feature_matrix
+# Import from your specific file structure
+from data.loader import load_raw_data 
+from data.processor import build_feature_matrix
 from engine import DeepHybridEngine, MomentumEngine
 
 def train_and_save_all():
     # 1. Ensure models directory exists
     os.makedirs("models", exist_ok=True)
     
-    # 2. Load Data
-    df = load_raw_data()
-    X, y, X_macro, _ = build_feature_matrix(df)
+    # 2. Setup environment for the loader
+    # We map GitHub Secrets to the names loader.py expects in its fallback
+    print("Preparing data environment...")
+    
+    # 3. Load Data
+    # We set force_sync=False because the trainer just needs to read the master data
+    print("Downloading data from Hugging Face...")
+    df = load_raw_data(force_sync=False)
+    
+    if df.empty:
+        print("❌ Error: Loaded DataFrame is empty. Check HF_TOKEN and FRED_API_KEY.")
+        return
+
+    # 4. Build features using your processor.py
+    print(f"Processing features for {len(df)} rows...")
+    X, y, _, _ = build_feature_matrix(df)
     
     # DL models require 3D input (Samples, Lookback, Features)
     lookback = 20
     X_3d = np.array([X[i-lookback:i] for i in range(lookback, len(X)+1)])
     y_3d = y[lookback-1:]
     
-    # --- Train Option I (CNN) ---
-    print("Training Option I...")
+    # --- Train Option I ---
+    print("Training Option I (CNN)...")
     model_i = DeepHybridEngine(mode="Option I")
     if model_i.train(X_3d, y_3d):
         model_i.save("models/opt_i_cnn.h5")
 
-    # --- Train Option J (CNN-LSTM) ---
-    print("Training Option J...")
+    # --- Train Option J ---
+    print("Training Option J (CNN-LSTM)...")
     model_j = DeepHybridEngine(mode="Option J")
     if model_j.train(X_3d, y_3d):
         model_j.save("models/opt_j_cnn_lstm.h5")
 
-    # --- Train Option K (Hybrid) ---
-    print("Training Option K...")
+    # --- Train Option K ---
+    print("Training Option K (Hybrid)...")
     model_k = DeepHybridEngine(mode="Option K")
-    # Align macro data with windowed price data
-    X_macro_k = X_macro[lookback-1:] 
-    if model_k.train(X_3d, y_3d, X_macro=X_macro_k):
+    if model_k.train(X_3d, y_3d):
         model_k.save("models/opt_k_hybrid.h5")
 
-    # --- Train Option A (SVR) ---
-    print("Updating Option A...")
+    # --- Train Option A ---
+    print("Updating Option A (SVR)...")
     model_a = MomentumEngine()
     if model_a.train(X, y):
         model_a.save("models/svr_momentum_poly.pkl")
+    
+    print("✅ All models trained and saved to /models")
 
 if __name__ == "__main__":
     train_and_save_all()
