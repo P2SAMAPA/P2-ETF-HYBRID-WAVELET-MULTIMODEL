@@ -13,7 +13,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Corrected hyphen syntax
+          fetch-depth: 0 
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -29,7 +29,7 @@ jobs:
       - name: Train Deep Learning Models
         run: python train_models.py
 
-      - name: Direct API Upload
+      - name: Upload via API
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
@@ -37,7 +37,7 @@ jobs:
           from huggingface_hub import HfApi
           import os
           api = HfApi()
-          # This 'teleports' the files to your Space, bypassing the Git wall
+          # Direct API upload bypasses the Git 'binary rejection' wall
           api.upload_folder(
               folder_path='models',
               repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
@@ -45,4 +45,4 @@ jobs:
               token=os.environ['HF_TOKEN']
           )
           "
-          echo "✅ Models uploaded via API. Git 'Sync-to-Hub' error bypassed."
+          echo "✅ Models uploaded via API. Old sync error bypassed."
