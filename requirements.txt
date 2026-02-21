@@ -1,17 +1,27 @@
+# UI & Framework
 streamlit
-pandas
-numpy
-yfinance
-fredapi
-pywavelets
-scikit-learn
-stable-baselines3
-shimmy
-torch
-pandas-market-calendars
-huggingface_hub
-pyarrow
 plotly
+
+# Data Fetching & APIs
+yfinance
+pandas_datareader
+fredapi
+huggingface_hub
+requests
+
+# Signal & Regime Processing
+PyWavelets
+statsmodels
+scipy
 hmmlearn
-tensorflow-cpu
+
+# Core Data & ML (Locked for Stability)
+pandas
+numpy==1.24.3
+scikit-learn
 joblib
+
+# Deep Learning
+# RECTIFIED: Added git-python to handle LFS pointer hydration
+tensorflow-cpu==2.15.0
+git-python
