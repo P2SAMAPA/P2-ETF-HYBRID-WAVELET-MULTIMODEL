@@ -77,10 +77,9 @@ class DeepHybridEngine:
             print(f"DL Training Error: {e}")
             return False
 
-    def predict_series(self, X_price, X_macro=None):
+  def predict_series(self, X_price, X_macro=None):
         import streamlit as st
         
-        # 1. Map selection to file
         file_map = {
             "Option I": "opt_i_cnn.h5",
             "Option J": "opt_j_cnn.h5", 
@@ -91,10 +90,26 @@ class DeepHybridEngine:
             model_file = file_map[self.mode]
             model_path = os.path.join("models", model_file)
 
-            # 2. Check for file existence
-            if not os.path.exists(model_path):
-                st.error(f"❌ {self.mode} weight file NOT FOUND at {model_path}. Reverting to zero/SVR.")
-                return np.zeros(len(X_price))
+            if os.path.exists(model_path):
+                if self.model is None:
+                    from tensorflow.keras.models import load_model
+                    self.model = load_model(model_path, compile=False)
+                    self.is_trained = True
+                
+                # Critical: Convert 2D backtest data to 3D temporal blocks
+                if len(X_price.shape) == 2:
+                    X_3d = np.array([X_price[i-self.lookback:i] for i in range(self.lookback, len(X_price)+1)])
+                    padding = np.zeros((self.lookback-1, self.lookback, X_price.shape[1]))
+                    X_final = np.vstack([padding, X_3d])
+                else:
+                    X_final = X_price
+
+                if self.mode == "Option K":
+                    return self.model.predict([X_final, X_macro], verbose=0).flatten()
+                return self.model.predict(X_final, verbose=0).flatten()
+
+        # Default fallback (e.g., SVR or Zeros)
+        return np.zeros(len(X_price))
 
             # 3. Load model if not already in memory
             if self.model is None:
