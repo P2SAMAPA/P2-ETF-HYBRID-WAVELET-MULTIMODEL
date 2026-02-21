@@ -12,31 +12,24 @@ import os
 
 class DeepHybridEngine:
     def __init__(self, mode="Option K", lookback=20):
-        """
-        Deep Learning Engine for Spatial-Temporal Feature Extraction.
-        """
         self.mode = mode
         self.lookback = lookback
         self.model = None
         self.is_trained = False
         
     def _build_parallel_model(self, n_price_feats, n_macro_feats):
-        """Architecture for Option K: Dual-Input Functional API"""
         from tensorflow.keras.models import Model
         from tensorflow.keras.layers import Input, Conv1D, LSTM, Dense, Concatenate, Dropout
         
-        # Stream 1: Price Action (CNN-LSTM)
         price_in = Input(shape=(self.lookback, n_price_feats), name='price_input')
         x = Conv1D(filters=32, kernel_size=3, activation='relu')(price_in)
         x = LSTM(64, return_sequences=False)(x)
         x = Dropout(0.2)(x)
 
-        # Stream 2: Macro/Credit Regime (Dense)
         macro_in = Input(shape=(n_macro_feats,), name='macro_input')
         y = Dense(16, activation='relu')(macro_in)
         y = Dense(8, activation='relu')(y)
 
-        # Fusion Layer
         merged = Concatenate()([x, y])
         z = Dense(16, activation='relu')(merged)
         output = Dense(1, activation='linear')(z)
@@ -46,7 +39,6 @@ class DeepHybridEngine:
         return model
 
     def train(self, X_price, y, X_macro=None):
-        """Trains the deep engine based on the selected architecture."""
         from tensorflow.keras.models import Model
         from tensorflow.keras.layers import Input, Conv1D, LSTM, Dense
         try:
@@ -69,10 +61,6 @@ class DeepHybridEngine:
             return False
 
     def predict_series(self, X_price, X_macro=None):
-        """
-        STRICT Prediction Logic for Options I, J, K.
-        No longer falls back to SVR (Option A).
-        """
         import os
         import numpy as np
         from tensorflow.keras.models import load_model
@@ -85,26 +73,23 @@ class DeepHybridEngine:
         
         if self.mode in file_map:
             model_file = file_map[self.mode]
-            model_path = os.path.join(os.getcwd(), "models", model_file)
+            # RECTIFIED PATHING: Look into the 'models' folder relative to this file
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            model_path = os.path.join(base_dir, "models", model_file)
             
             if os.path.exists(model_path):
                 try:
-                    # Load weights only to avoid versioning/compilation issues
                     current_model = load_model(model_path, compile=False)
-                    
                     if self.mode == "Option K" and X_macro is not None:
                         preds = current_model.predict([X_price, X_macro], verbose=0).flatten()
                     else:
                         preds = current_model.predict(X_price, verbose=0).flatten()
-                    
                     return preds
                 except Exception as e:
                     print(f"❌ Load Error for {self.mode}: {e}")
             else:
                 print(f"⚠️ Missing File: {model_path}")
 
-        # If file is missing or load fails, return zeros. 
-        # This makes it obvious in the UI that the model is NOT Option A.
         return np.zeros(len(X_price))
 
     def save(self, filepath):
@@ -163,14 +148,7 @@ class A2CEngine:
             self.weights = np.random.normal(0, 0.1, features.shape[1])
         return np.dot(features, self.weights)
 
-# ---------------------------------------------------------------------------
-# PRODUCTION UTILITY (UNTOUCHED)
-# ---------------------------------------------------------------------------
-def update_model_checkpoint(
-    raw_df: pd.DataFrame,
-    target_col: str = "GLD",
-    save_path: str = "models/svr_momentum_poly.pkl"
-) -> "MomentumEngine | None":
+def update_model_checkpoint(raw_df: pd.DataFrame, target_col: str = "GLD", save_path: str = "models/svr_momentum_poly.pkl") -> "MomentumEngine | None":
     from data.processor import build_feature_matrix as build_features
     X, y, _, _ = build_features(raw_df, target_col=target_col)
     engine = MomentumEngine()
@@ -178,5 +156,4 @@ def update_model_checkpoint(
     if success:
         engine.save(save_path)
         return engine
-    print("Model training failed — returning None.")
     return None
