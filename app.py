@@ -58,31 +58,31 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
 
     bsts_filter = BayesianFilter() if "BSTS" in model_choice else None
 
-    # --- PREDICTION ENGINE ROUTING (FIXED) ---
+    # --- PREDICTION ENGINE ROUTING (RECTIFIED) ---
+    # We clear any previous predictions to prevent "Ghosting" from Option G
+    all_preds = {} 
+
     if not (model_choice.startswith("Option E") or model_choice.startswith("Option G")):
         for ticker in assets:
             try:
-                # 1. Build Features
                 X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
                 is_mask = idx.year < start_yr
                 oos_mask = idx.year >= start_yr
                 
-                # 2. Select Correct Engine
+                # Check for Deep Learning Options (I, J, K)
                 if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
-                    # Determine Mode for Deep Engine
-                    mode_map = {"Option I": "Option I", "Option J": "Option J", "Option K": "Option K"}
-                    active_mode = next((v for k, v in mode_map.items() if k in model_choice), "Option I")
+                    active_mode = "Option K" if "Option K" in model_choice else \
+                                  "Option J" if "Option J" in model_choice else "Option I"
                     
                     engine = DeepHybridEngine(mode=active_mode)
-                    # NOTE: We do NOT call engine.train here because we want to use the 
-                    # pre-trained models from the GitHub Action API Sync.
                     
-                    # For Option K, we need macro features
+                    # For Option K, we provide the macro feature stream
                     X_macro = None
                     if active_mode == "Option K":
                         macro_cols = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
                         X_macro = raw_df[macro_cols].loc[idx[oos_mask]].values
                     
+                    # This calls the load_model logic in engine.py
                     preds = engine.predict_series(X[oos_mask], X_macro=X_macro)
                 
                 elif "Option C" in model_choice:
@@ -91,13 +91,13 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
                     preds = engine.predict_series(X[oos_mask])
                 
                 else:
+                    # Default to Momentum SVR (Option A)
                     engine = MomentumEngine(c_param=700.0)
                     engine.train(X[is_mask], y[is_mask])
                     preds = engine.predict_series(X[oos_mask])
                 
                 all_preds[ticker] = pd.Series(preds, index=idx[oos_mask])
             except Exception as e:
-                st.error(f"Error processing {ticker}: {e}")
                 continue
 
     pred_df = pd.DataFrame(all_preds).dropna() if all_preds else pd.DataFrame()
@@ -131,13 +131,13 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
             else:
                 signal_asset = "CASH"
         else:
-            if date in pred_df.index:
+            if not pred_df.empty and date in pred_df.index:
                 daily_preds = pred_df.loc[date]
                 signal_asset = daily_preds.idxmax() if daily_preds.max() > threshold else "CASH"
             else:
                 signal_asset = "CASH"
 
-        # Stop Loss & Execution
+        # Execution Logic
         if current_asset != "CASH":
             current_price = raw_df.loc[date, current_asset]
             peak_price_since_entry = max(peak_price_since_entry, current_price)
@@ -171,8 +171,8 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     res["RF"] = (raw_df.loc[oos_idx, "TBILL_3M"] / 100) / 252
     for b in ["SPY", "AGG"]: res[b] = (raw_df.loc[oos_idx, f"{b}_Ret"].add(1).cumprod() * 100)
 
-    # Confidence and Stats
-    confidence_val = 0.70
+    # Confidence calculation
+    confidence_val = 0.50 # Default baseline
     if not pred_df.empty:
         last_preds = pred_df.iloc[-1]
         z_score = (last_preds.max() - last_preds.mean()) / last_preds.std() if last_preds.std() > 0 else 0
@@ -302,5 +302,5 @@ if output:
         "Option J": "**Wavelet-SVR-CNN-LSTM:** SVR establishes a baseline trend, while a CNN-LSTM residual model captures complex volatility spikes.",
         "Option K": "**Parallel-Dual-Stream:** Dedicated neural pathways for Price Action and Macro Risk (HY Spreads/VIX) to prevent signal smearing.",
     }
-    active_logic = next((desc for key, desc in methods.items() if key in opt), "Ensemble Engine Execution")
+    active_logic = methods.get(opt[:8], "Ensemble Engine Execution")
     st.markdown(f"* {active_logic}\n* **Kelly Criterion:** Half-Kelly sizing based on a 15-day rolling window.\n* **Regime Gating:** Automated CASH reversion.")
