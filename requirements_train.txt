@@ -1,10 +1,14 @@
+# UI & Framework (Required because data/ files import them)
+streamlit
+plotly
+
 # Data Fetching & APIs
 yfinance
 pandas_datareader
 huggingface_hub
 requests
 
-# Signal Processing (Used in Wavelet/BSTS logic)
+# Signal Processing
 PyWavelets
 statsmodels
 
