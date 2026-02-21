@@ -35,6 +35,25 @@ def automate_training():
         engine_i.save("models/opt_i_cnn.h5")
 
     print("✅ Training Complete. Files generated in /models.")
+    # --- DIRECT API INJECTION ---
+    from huggingface_hub import HfApi
+    import os
+
+    api = HfApi()
+    token = os.getenv("HF_TOKEN")
+
+    if token:
+    print("🚀 Teleporting models to Hugging Face...")
+    api.upload_folder(
+        folder_path="models",
+        repo_id="P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO",
+        repo_type="space",
+        path_in_repo="models",  # This puts files inside the /models folder
+        token=token
+    )
+    print("✅ Injection complete!")
+    else:
+    print("❌ HF_TOKEN missing. Skipping upload.")
 
 if __name__ == "__main__":
     automate_training()
