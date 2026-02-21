@@ -68,23 +68,11 @@ class DeepHybridEngine:
             print(f"DL Training Error: {e}")
             return False
 
-    def predict_svr_fallback(self, X_price):
-        """Helper to provide SVR fallback when DL models are missing"""
-        try:
-            svr_path = os.path.join(os.getcwd(), "models/svr_momentum_poly.pkl")
-            if os.path.exists(svr_path):
-                svr_model = joblib.load(svr_path)
-                # If X_price is 3D, take the last time step for SVR
-                if len(X_price.shape) == 3:
-                    X_2d = X_price[:, -1, :]
-                    return svr_model.predict(X_2d)
-                return svr_model.predict(X_price)
-        except:
-            pass
-        return np.zeros(len(X_price))
-
     def predict_series(self, X_price, X_macro=None):
-        """Standardized Prediction Logic for Options I, J, K"""
+        """
+        STRICT Prediction Logic for Options I, J, K.
+        No longer falls back to SVR (Option A).
+        """
         import os
         import numpy as np
         from tensorflow.keras.models import load_model
@@ -96,34 +84,34 @@ class DeepHybridEngine:
         }
         
         if self.mode in file_map:
-            # Join paths correctly for the Hugging Face environment
-            model_path = os.path.join(os.getcwd(), "models", file_map[self.mode])
+            model_file = file_map[self.mode]
+            model_path = os.path.join(os.getcwd(), "models", model_file)
             
             if os.path.exists(model_path):
                 try:
-                    # Force load the current physical file
+                    # Load weights only to avoid versioning/compilation issues
                     current_model = load_model(model_path, compile=False)
-                    print(f"✅ ACTIVE: Loading {self.mode} from {model_path}")
                     
-                    # Execute Prediction based on mode
-                    if self.mode == "Option K":
-                        if X_macro is not None:
-                            return current_model.predict([X_price, X_macro], verbose=0).flatten()
+                    if self.mode == "Option K" and X_macro is not None:
+                        preds = current_model.predict([X_price, X_macro], verbose=0).flatten()
+                    else:
+                        preds = current_model.predict(X_price, verbose=0).flatten()
                     
-                    return current_model.predict(X_price, verbose=0).flatten()
+                    return preds
                 except Exception as e:
                     print(f"❌ Load Error for {self.mode}: {e}")
             else:
-                print(f"⚠️ Missing File: {model_path}. Defaulting to SVR logic.")
+                print(f"⚠️ Missing File: {model_path}")
 
-        # Fallback: If DL fails or file is missing
-        return self.predict_svr_fallback(X_price)
+        # If file is missing or load fails, return zeros. 
+        # This makes it obvious in the UI that the model is NOT Option A.
+        return np.zeros(len(X_price))
 
     def save(self, filepath):
         if self.model: self.model.save(filepath)
 
 # ---------------------------------------------------------------------------
-# MOMENTUM ENGINE (Untouched)
+# MOMENTUM ENGINE (UNTOUCHED)
 # ---------------------------------------------------------------------------
 class MomentumEngine:
     def __init__(self, c_param: float = 700.0, degree: int = 3):
@@ -154,7 +142,7 @@ class MomentumEngine:
         return True
 
 # ---------------------------------------------------------------------------
-# A2C ENGINE (Untouched)
+# A2C ENGINE (UNTOUCHED)
 # ---------------------------------------------------------------------------
 class A2CEngine:
     def __init__(self, learning_rate=0.01):
@@ -176,7 +164,7 @@ class A2CEngine:
         return np.dot(features, self.weights)
 
 # ---------------------------------------------------------------------------
-# PRODUCTION UTILITY (Untouched)
+# PRODUCTION UTILITY (UNTOUCHED)
 # ---------------------------------------------------------------------------
 def update_model_checkpoint(
     raw_df: pd.DataFrame,
