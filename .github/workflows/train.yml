@@ -22,23 +22,27 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements_train.txt
-          pip install huggingface_hub  # Required for the upload
+          pip install huggingface_hub  # Essential for the API upload
 
       - name: Train Deep Learning Models
         run: python train_models.py
 
-      - name: Upload Models to Hugging Face
+      - name: Upload Models via API (Bypass Git Errors)
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python -c "
           from huggingface_hub import HfApi
+          import os
           api = HfApi()
-          # Upload the models folder directly via API (bypasses Git binary limits)
+          
+          # This command skips the 'Git Push' and sends files directly to HF storage
+          # It overwrites existing files in the 'models' folder on your Space
           api.upload_folder(
               folder_path='models',
               repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
               repo_type='space',
-              token='${{ secrets.HF_TOKEN }}'
+              token=os.environ['HF_TOKEN']
           )
+          print('✅ Models uploaded successfully via API!')
           "
