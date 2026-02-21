@@ -15,11 +15,11 @@ statsmodels
 scipy
 hmmlearn
 
-# Core Data & ML (Added joblib explicitly)
+# Core Data & ML (Locked for Stability)
 pandas
 numpy==1.24.3
 scikit-learn
 joblib
 
-# Deep Learning
+# Deep Learning (CPU-only to prevent CUDA errors)
 tensorflow-cpu==2.15.0
