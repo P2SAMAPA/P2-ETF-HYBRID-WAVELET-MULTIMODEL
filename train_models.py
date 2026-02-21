@@ -46,18 +46,18 @@ def automate_training():
     if token:
         print("🚀 Teleporting models to Hugging Face models/ folder...")
         try:
-            # Uploading files one by one to force the correct path
+            # Force upload to the SPECIFIC subfolder
             for model_file in ["opt_k_dual.h5", "opt_i_cnn.h5"]:
                 local_path = f"models/{model_file}"
                 if os.path.exists(local_path):
                     api.upload_file(
                         path_or_fileobj=local_path,
-                        path_in_repo=f"models/{model_file}", # Explicitly set to models/ folder
+                        path_in_repo=f"models/{model_file}", # This is the "GPS" fix
                         repo_id=repo_id,
                         repo_type="space",
                         token=token
                     )
-                    print(f"✅ {model_file} injected successfully!")
+                    print(f"✅ {model_file} injected into models/ successfully!")
         except Exception as e:
             print(f"❌ Upload failed: {e}")
     else:
