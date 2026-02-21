@@ -38,17 +38,17 @@ jobs:
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
           
-          # 2. Initialize LFS and track files
+          # 2. Initialize LFS
           git lfs install
-          git lfs track "models/*.h5"
-          git add .gitattributes
           
-          # 3. CRITICAL: Clear index of non-LFS binaries to fix "rejected" error
+          # 3. CRITICAL: Clear any existing binary tracking
           git rm -r --cached models/*.h5 || echo "Already clean"
           
-          # 4. Re-add files as LFS pointers
+          # 4. Re-track and Add
+          git lfs track "models/*.h5"
+          git add .gitattributes
           git add models/*.h5
           
-          # 5. Commit and Force Push to Hugging Face
+          # 5. Force Push to bypass the rejected history
           git commit -m "🤖 Clean LFS update for neural weights" || echo "No changes"
           git push --force
