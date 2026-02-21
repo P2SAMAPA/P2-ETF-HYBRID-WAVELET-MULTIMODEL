@@ -1,0 +1,8 @@
+# Core Data
+pandas
+numpy==1.24.3
+scikit-learn
+joblib
+
+# Lightweight Deep Learning
+tensorflow-cpu==2.15.0  # Saves 500MB+ vs full version
