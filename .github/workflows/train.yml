@@ -14,54 +14,41 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          lfs: true # Ensures LFS is ready
 
-      # 1. Setup Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      # 2. Install everything from your new requirements_train.txt
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements_train.txt
 
-      # 3. Run the training script
       - name: Train Deep Learning Models
         run: python train_models.py
 
-      # 4. Debug and Sync (This is the section I fixed for you)
       - name: Commit and Push Model Files
         run: |
-          # Check what was created so we can see it in the GitHub logs
-          echo "Checking for generated files..."
-          ls -R models/ || echo "Models directory does not exist yet"
-          
+          # 1. Identity Setup
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
           
-          # Stage the files safely
-          # Using 'git add models/' is safer than 'models/*.h5' if the folder is empty
-          git add models/ || echo "No models folder to add"
-          
-          # Commit only if there are changes, otherwise move on
-          git commit -m "Auto-update deep learning weights [.h5]" || echo "No changes to commit"
-          
-          - name: Commit and Push Model Files
-        run: |
-          git config --global user.name 'GitHub Action Bot'
-          git config --global user.email 'action@github.com'
-          
-          # 1. Install and track large binary files
+          # 2. Initialize Git LFS
           git lfs install
+          
+          # 3. Track .h5 files as Large Files
+          # This creates/updates a .gitattributes file
           git lfs track "models/*.h5"
           git add .gitattributes
           
-          # 2. Add the weights
+          # 4. Add the model files
           git add models/*.h5
           
-          # 3. Commit and push
-          git commit -m "Auto-update deep learning weights [.h5]" || echo "No changes"
-          git push
+          # 5. Commit and Push
+          # We use --force to resolve binary conflict issues with the remote
+          git commit -m "🤖 Auto-update neural weights via LFS" || echo "No changes"
+          git push --force
