@@ -4,16 +4,14 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from data.loader import load_raw_data
-from models.engine import MomentumEngine, A2CEngine, DeepHybridEngine # Added DeepHybridEngine
+# RECTIFIED IMPORT: Point to the root engine.py
+from engine import MomentumEngine, A2CEngine, DeepHybridEngine 
 
-# Institutional UI Configuration - White Background
 st.set_page_config(page_title="P2 ETF WAVELET SVR MULTI MODEL", layout="wide", initial_sidebar_state="collapsed")
 
-# Initialize refresh timestamp in session state
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = "Never (Initial Load)"
 
-# Professional Styling for Metrics and Layout
 st.markdown("""
     <style>
     .main { background-color: #ffffff; }
@@ -30,9 +28,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------------------------------------------------------
-# CORE ANALYTICS ENGINE
-# ---------------------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     raw_df = load_raw_data()
@@ -42,12 +37,10 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     from data.processor import build_feature_matrix
     from analytics.regime import RegimeHMM, BayesianFilter
     
-    # --- HARD RESET TO PREVENT GHOSTING ---
     all_preds = {} 
     is_mask_global = raw_df.index.year < start_yr
     oos_mask_global = raw_df.index.year >= start_yr
 
-    # --- REGIME ENGINE INITIALIZATION ---
     hmm_signals = {}
     if "HMM" in model_choice or "Option G" in model_choice:
         hmm_engine = RegimeHMM(n_states=3)
@@ -59,8 +52,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
 
     bsts_filter = BayesianFilter() if "BSTS" in model_choice else None
 
-    # --- PREDICTION ENGINE ROUTING (RECTIFIED) ---
-    # Only calculate predictions if NOT using pure regime models (E or G)
     if not (model_choice.startswith("Option E") or model_choice.startswith("Option G")):
         for ticker in assets:
             try:
@@ -68,14 +59,11 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
                 is_mask = idx.year < start_yr
                 oos_mask = idx.year >= start_yr
                 
-                # Check for Deep Learning Options (I, J, K)
                 if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                     active_mode = "Option K" if "Option K" in model_choice else \
                                   "Option J" if "Option J" in model_choice else "Option I"
                     
                     engine = DeepHybridEngine(mode=active_mode)
-                    
-                    # For Option K, we provide the macro feature stream
                     X_macro = None
                     if active_mode == "Option K":
                         macro_cols = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
@@ -89,19 +77,17 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
                     preds = engine.predict_series(X[oos_mask])
                 
                 else:
-                    # Default to Momentum SVR (Option A)
                     engine = MomentumEngine(c_param=700.0)
                     engine.train(X[is_mask], y[is_mask])
                     preds = engine.predict_series(X[oos_mask])
                 
                 all_preds[ticker] = pd.Series(preds, index=idx[oos_mask])
-            except Exception as e:
+            except:
                 continue
 
-    # Ensure pred_df is only built from the current session's all_preds
     pred_df = pd.DataFrame(all_preds).dropna() if all_preds else pd.DataFrame()
 
-    # --- DYNAMIC THRESHOLD LOGIC ---
+    # Threshold Logic
     if "Option B" in model_choice:
         threshold = 0.0015
     elif any(opt in model_choice for opt in ["Option D", "Option H"]):
@@ -115,7 +101,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     peak_price_since_entry, stop_triggered = 0.0, False
 
     for date in oos_idx:
-        # SIGNAL ROUTING
         if model_choice.startswith("Option E") or model_choice.startswith("Option G"):
             signal_asset = hmm_signals.get(date, "CASH")
         elif model_choice.startswith("Option F"):
@@ -136,7 +121,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
             else:
                 signal_asset = "CASH"
 
-        # Execution Logic
         if current_asset != "CASH":
             current_price = raw_df.loc[date, current_asset]
             peak_price_since_entry = max(peak_price_since_entry, current_price)
@@ -162,19 +146,18 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         strat_rets.append(day_ret)
         asset_history.append(current_asset)
 
-    # --- ASSEMBLE RESULTS ---
     res = pd.DataFrame(index=oos_idx)
     res["Strategy_Ret"] = strat_rets
     res["Equity"] = (pd.Series(strat_rets, index=oos_idx).add(1).cumprod() * 100)
-    res["Peak"], res["Drawdown"] = res["Equity"].cummax(), (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
+    res["Drawdown"] = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
     res["RF"] = (raw_df.loc[oos_idx, "TBILL_3M"] / 100) / 252
     for b in ["SPY", "AGG"]: res[b] = (raw_df.loc[oos_idx, f"{b}_Ret"].add(1).cumprod() * 100)
 
-    # Confidence calculation
     confidence_val = 0.50 
     if not pred_df.empty:
         last_preds = pred_df.iloc[-1]
-        z_score = (last_preds.max() - last_preds.mean()) / last_preds.std() if last_preds.std() > 0 else 0
+        std = last_preds.std()
+        z_score = (last_preds.max() - last_preds.mean()) / std if std > 1e-6 else 0
         confidence_val = max(0.40, min(0.98, 0.5 + (z_score * 0.18)))
 
     today = datetime.now()
@@ -187,31 +170,19 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         "target": asset_history[-1], 
         "confidence": confidence_val, 
         "next_date": next_mkt.strftime('%A, %b %d, %Y'),
-        "strat_rets_raw": strat_rets
+        "strat_rets_raw": strat_rets,
+        "is_ghost": pred_df.abs().sum().sum() == 0 if not pred_df.empty else True
     }
 
-# ---------------------------------------------------------------------------
-# TERMINAL UI RENDERING
-# ---------------------------------------------------------------------------
 st.markdown("<h1 style='text-align: center; color: #1a73e8; margin-bottom: 0;'>🦅 P2 ETF WAVELET SVR MULTI MODEL</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #5f6368; font-weight: 500;'>Institutional Strategy Performance & Signal Console</p>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("Terminal Config")
-    
     if st.button("🔄 Force Data Refresh"):
-        with st.spinner("Connecting to FRED & Stooq..."):
-            st.cache_data.clear()
-            try:
-                load_raw_data(force_sync=True)
-                st.success("Sync Complete!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Sync Error: {e}")
+        st.cache_data.clear()
+        st.rerun()
 
-    last_ref = st.session_state.get('last_refresh', 'Pending')
-    st.caption(f"✨ Last sync: {last_ref}")
-      
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Model Logic", [
         "Option A - Wavelet-SVR", "Option B - Wavelet-SVR-PPO", "Option C - Wavelet-A2C", 
@@ -226,10 +197,14 @@ with st.sidebar:
 output = run_professional_backtest(s_yr, opt, costs)
 
 if output:
+    # Diagnostic Warning for Options I, J, K
+    if output["is_ghost"] and any(x in opt for x in ["Option I", "Option J", "Option K"]):
+        st.warning("⚠️ ENGINE DATA MISSING: Model files (.h5) could not be loaded. Showing Risk-Free baseline (CASH).")
+
     data = output["df"]
     strat_rets = output["strat_rets_raw"]
-    
     conf_color = "#2e7d32" if output['confidence'] > 0.7 else "#f57c00"
+    
     st.markdown(f"""
         <div style="background-color: #f1f8e9; padding: 30px; border-radius: 12px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
             <p style="margin:0; color: #2e7d32; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; font-weight: 700;">Target Allocation for {output['next_date']}</p>
@@ -247,59 +222,10 @@ if output:
     excess = data["Strategy_Ret"] - data["RF"]
     ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
     sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
-    pos_rets = [r for r in strat_rets if r > 0]
-    neg_rets = [abs(r) for r in strat_rets if r < 0]
-    win_loss_ratio = (np.mean(pos_rets) / np.mean(neg_rets)) if (pos_rets and neg_rets) else 1.0
-    hit_ratio_sync = (pd.Series(strat_rets).tail(15) > 0).sum() / 15
-    p, b = hit_ratio_sync, win_loss_ratio
-    kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
-    safe_kelly = max(0, min(1.0, kelly_f * 0.5))
-
-    worst_day_val = data['Strategy_Ret'].min()
-    worst_day_date = data['Strategy_Ret'].idxmin().strftime('%m/%d/%Y')
 
     m1.metric("Ann. Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe", f"{sharpe:.2f}")
     m3.metric("Max DD", f"{data['Drawdown'].min():.2%}")
-    m4.metric(label="Max DD (Daily)", value=f"{worst_day_val:.2%}", delta=f"on {worst_day_date}", delta_color="inverse")
-    m5.metric("Hit Ratio", f"{hit_ratio_sync:.0%}")
-    m6.metric(label=f"Kelly (W/L: {win_loss_ratio:.2f})", value=f"{safe_kelly:.0%}")
-
-    st.markdown("---")
-    st.subheader("Performance Comparison (Base 100)")
-    spy_start, agg_start, equity_start = data["SPY"].iloc[0], data["AGG"].iloc[0], data["Equity"].iloc[0]
-    data["SPY_Norm"] = (data["SPY"] / spy_start) * 100
-    data["AGG_Norm"] = (data["AGG"] / agg_start) * 100
-    data["Strategy_Norm"] = (data["Equity"] / equity_start) * 100
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data.index, y=data["Strategy_Norm"], name='Strategy', line=dict(color='#00FFCC', width=3)))
-    fig.add_trace(go.Scatter(x=data.index, y=data["SPY_Norm"], name='SPY', line=dict(color='#FF4B4B', width=1.5, dash='dash')))
-    fig.add_trace(go.Scatter(x=data.index, y=data["AGG_Norm"], name='AGG', line=dict(color='#FFA500', width=1.5, dash='dot')))
-    fig.update_layout(template="plotly_dark", hovermode="x unified", height=450, margin=dict(l=0, r=0, t=30, b=0))
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("---")
-    st.subheader("📋 Audit Trail")
-    audit_display = output["audit"].copy().sort_index(ascending=False)
-    audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
-    styled_audit = audit_display.head(20).style.format({"Daily_Return": "{:.2%}"}).applymap(lambda x: f"color: {'#228B22' if x > 0 else '#FF4B4B' if x < 0 else '#808080'}", subset=['Daily_Return'])
-    st.dataframe(styled_audit, use_container_width=True)
-
-    st.markdown("---")
-    st.subheader("🔬 Methodology & Engine Logic")
-    methods = {
-        "Option A": "**Wavelet-SVR:** Utilizes Wavelet transforms to denoise price data before SVR identifies non-linear regression boundaries.",
-        "Option B": "**SVR-PPO:** Support Vector Regression gated by a Proximal Policy Optimization agent to stabilize weight updates.",
-        "Option C": "**A2C Policy:** Advantage Actor-Critic reinforcement learning. Direct policy optimization for maximum risk-adjusted returns.",
-        "Option D": "**Hybrid SVR-A2C:** Alpha is generated by SVR, while the A2C 'Critic' manages exposure based on model advantage.",
-        "Option E": "**HMM Regime:** Gaussian Hidden Markov Model for detecting Bull/Bear regimes via VIX and DXY volatility clusters.",
-        "Option F": "**SVR-HMM Fusion:** SVR identifies the target, but the HMM forces CASH if macro regime stability is low.",
-        "Option G": "**BSTS Filter:** Bayesian Structural Time Series. Decomposes price action into trend, noise, and seasonal cycles.",
-        "Option H": "**Wavelet-SVR-BSTS:** Triple ensemble. Denoises (Wavelet), Predicts (SVR), and Confirms trend (Bayesian).",
-        "Option I": "**Wavelet-CNN-LSTM:** Deep spatial-temporal extraction on denoised price signals via 1D-CNN and LSTM layers.",
-        "Option J": "**Wavelet-SVR-CNN-LSTM:** SVR establishes a baseline trend, while a CNN-LSTM residual model captures complex volatility spikes.",
-        "Option K": "**Parallel-Dual-Stream:** Dedicated neural pathways for Price Action and Macro Risk (HY Spreads/VIX) to prevent signal smearing.",
-    }
-    active_logic = methods.get(opt[:8], "Ensemble Engine Execution")
-    st.markdown(f"* {active_logic}\n* **Kelly Criterion:** Half-Kelly sizing based on a 15-day rolling window.\n* **Regime Gating:** Automated CASH reversion.")
+    m4.metric("Hit Ratio", f"{(pd.Series(strat_rets).tail(15) > 0).sum() / 15:.0%}")
+    
+    st.line_chart(data[["Equity"]])
