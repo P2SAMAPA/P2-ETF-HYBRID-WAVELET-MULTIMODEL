@@ -15,7 +15,8 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          lfs: true # Ensures LFS is ready
+          lfs: true
+          fetch-depth: 0 # Required for a clean push to Hugging Face
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -37,37 +38,17 @@ jobs:
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
           
-          # 2. Initialize Git LFS
+          # 2. Initialize and Install LFS in the Runner
           git lfs install
           
-          # 3. Track .h5 files as Large Files
-          # This creates/updates a .gitattributes file
+          # 3. Force track the extensions and capture attributes
           git lfs track "models/*.h5"
           git add .gitattributes
           
-          # 4. Add the model files
+          # 4. Add the generated models
           git add models/*.h5
           
-          # 5. Commit and Push
-         - name: Commit and Push Model Files
-        run: |
-          # 1. Setup Identity
-          git config --global user.name 'GitHub Action Bot'
-          git config --global user.email 'action@github.com'
-          
-          # 2. Install and Initialize Git LFS
-          # This is required by Hugging Face for .h5 files
-          git lfs install
-          
-          # 3. Track .h5 files as Large Files
-          # This creates/updates the .gitattributes file
-          git lfs track "models/*.h5"
-          git add .gitattributes
-          
-          # 4. Add the model files
-          git add models/*.h5
-          
-          # 5. Commit and Push
-          # We use --force to overwrite any remote conflicts caused by the binary rejection
+          # 5. Commit and Force Push
+          # Force push is necessary to clear the "rejected binary" state on the remote
           git commit -m "🤖 Auto-update neural weights via LFS" || echo "No changes"
           git push --force
