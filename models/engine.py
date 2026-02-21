@@ -78,33 +78,64 @@ class DeepHybridEngine:
             return False
 
     def predict_series(self, X_price, X_macro=None):
-        """
-        Production Predictor: Attempts to load cloud-trained weights (.h5) 
-        before defaulting to in-memory model.
-        """
         import streamlit as st
         
-        # 1. Attempt to load the cloud-trained model if current model is empty
-        if self.model is None:
-            file_map = {
-                "Option I": "opt_i_cnn.h5",
-                "Option J": "opt_j_cnn.h5", 
-                "Option K": "opt_k_dual.h5"
-            }
-            model_path = os.path.join("models", file_map.get(self.mode, ""))
-            
-            if os.path.exists(model_path):
+        # 1. Map selection to file
+        file_map = {
+            "Option I": "opt_i_cnn.h5",
+            "Option J": "opt_j_cnn.h5", 
+            "Option K": "opt_k_dual.h5"
+        }
+        
+        if self.mode in file_map:
+            model_file = file_map[self.mode]
+            model_path = os.path.join("models", model_file)
+
+            # 2. Check for file existence
+            if not os.path.exists(model_path):
+                st.error(f"❌ {self.mode} weight file NOT FOUND at {model_path}. Reverting to zero/SVR.")
+                return np.zeros(len(X_price))
+
+            # 3. Load model if not already in memory
+            if self.model is None:
                 from tensorflow.keras.models import load_model
                 try:
                     self.model = load_model(model_path, compile=False)
                     self.is_trained = True
-                    # Optional: st.toast(f"Loaded {self.mode} Brain", icon="🧠")
+                    st.success(f"🧠 {self.mode} Neural Engine Active (Loaded {model_file})")
                 except Exception as e:
-                    print(f"Error loading {model_path}: {e}")
+                    st.error(f"Error loading {model_file}: {e}")
+                    return np.zeros(len(X_price))
 
-        # 2. Final check: if still no model and no training, return zeros
-        if not self.is_trained or self.model is None: 
-            return np.zeros(len(X_price))
+            # 4. Handle 3D Reshaping for CNN/LSTM
+            # If data is 2D (Samples, Features), we must make it 3D (Samples, Lookback, Features)
+            try:
+                if len(X_price.shape) == 2:
+                    # Creating a sliding window of 20 days for the entire series
+                    # This ensures the CNN sees 'patterns' not just 'points'
+                    X_3d = np.array([X_price[i-self.lookback:i] for i in range(self.lookback, len(X_price)+1)])
+                    
+                    # Align lengths by padding the beginning
+                    padding = np.zeros((self.lookback-1, self.lookback, X_price.shape[1]))
+                    X_final = np.vstack([padding, X_3d])
+                else:
+                    X_final = X_price
+
+                # 5. Execute Prediction
+                if self.mode == "Option K":
+                    if X_macro is None: 
+                        st.warning("Option K requires Macro data.")
+                        return np.zeros(len(X_price))
+                    return self.model.predict([X_final, X_macro], verbose=0).flatten()
+                
+                return self.model.predict(X_final, verbose=0).flatten()
+                
+            except Exception as e:
+                st.error(f"Prediction logic failed for {self.mode}: {e}")
+                return np.zeros(len(X_price))
+
+        # DEFAULT: If not I, J, or K, return zeros (or implement your SVR call here)
+        return np.zeros(len(X_price))
         
         # 3. AUTO-RESHAPE: Ensure input is 3D (Samples, Lookback, Features)
         # Deep models trained in cloud expect 3D blocks.
