@@ -18,32 +18,23 @@ class DeepHybridEngine:
         self.is_trained = False
         
     def _build_parallel_model(self, n_price_feats, n_macro_feats):
-        """
-        Architecture for Option K: Parallel-Dual-Stream-CNN-LSTM
-        """
         from tensorflow.keras.models import Model
         from tensorflow.keras.layers import Input, Conv1D, LSTM, Dense, Concatenate, Dropout, Attention
         
-        # Branch 1: Price/Technical Sequence (3D Tensor)
         price_in = Input(shape=(self.lookback, n_price_feats), name='price_input')
         x = Conv1D(filters=32, kernel_size=3, activation='relu', padding='same')(price_in)
         
-        # Branch 2: Macro/Regime Context (2D Vector)
         macro_in = Input(shape=(n_macro_feats,), name='macro_input')
         y = Dense(16, activation='relu')(macro_in)
         y = Dense(8, activation='relu')(y)
 
-        # Sequence Processing
         x = LSTM(64, return_sequences=True if "Option J" in self.mode else False)(x)
         
-        # If Option J, add Attention Mechanism
         if "Option J" in self.mode:
             query_value_attention_seq = Attention()([x, x])
             x = LSTM(32)(query_value_attention_seq)
             
         x = Dropout(0.2)(x)
-
-        # Fusion Layer
         merged = Concatenate()([x, y])
         z = Dense(16, activation='relu')(merged)
         output = Dense(1, activation='linear')(z)
@@ -75,26 +66,14 @@ class DeepHybridEngine:
             return False
 
     def predict_series(self, X_price, X_macro=None):
-        import numpy as np
         from tensorflow.keras.models import load_model
         
-        file_map = {
-            "Option I": "opt_i_cnn.h5",
-            "Option J": "opt_j_cnn_lstm.h5",
-            "Option K": "opt_k_hybrid.h5"
-        }
-        
-        # Extract the key to match the file map
+        file_map = {"Option I": "opt_i_cnn.h5", "Option J": "opt_j_cnn_lstm.h5", "Option K": "opt_k_hybrid.h5"}
         key = "Option I" if "Option I" in self.mode else "Option J" if "Option J" in self.mode else "Option K"
         model_file = file_map.get(key)
         
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        possible_paths = [
-            os.path.join(base_dir, "models", model_file),
-            os.path.join(base_dir, model_file),
-            os.path.join("/app", "models", model_file)
-        ]
-        
+        possible_paths = [os.path.join(base_dir, "models", model_file), os.path.join(base_dir, model_file)]
         model_path = next((p for p in possible_paths if os.path.exists(p) and os.path.getsize(p) > 2048), None)
         
         if model_path:
@@ -102,68 +81,49 @@ class DeepHybridEngine:
                 from tensorflow.keras import backend as K
                 K.clear_session()
                 current_model = load_model(model_path, compile=False)
-                
                 if "Option K" in self.mode and X_macro is not None:
-                    preds = current_model.predict([X_price, X_macro], verbose=0).flatten()
-                else:
-                    preds = current_model.predict(X_price, verbose=0).flatten()
-                return preds
-            except Exception as e:
-                print(f"❌ Load Error for {self.mode}: {e}")
-        
+                    return current_model.predict([X_price, X_macro], verbose=0).flatten()
+                return current_model.predict(X_price, verbose=0).flatten()
+            except: pass
         return np.zeros(len(X_price))
 
+    def save(self, filepath):
+        if self.model:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            self.model.save(filepath)
+
 # ---------------------------------------------------------------------------
-# SVR MOMENTUM ENGINE (Options A, B, D, G, H)
+# SVR & RL ENGINES
 # ---------------------------------------------------------------------------
 class MomentumEngine:
-    def __init__(self, c_param: float = 700.0, degree: int = 3):
-        self.c_param = c_param
-        self.degree = degree
+    def __init__(self, c_param=700.0, degree=3):
         self.is_trained = False
-        self.model = Pipeline([
-            ('scaler', StandardScaler()),
-            ('svr', SVR(kernel='poly', degree=self.degree, C=self.c_param, epsilon=0.001, coef0=1.0, gamma='scale'))
-        ])
+        self.model = Pipeline([('scaler', StandardScaler()), ('svr', SVR(kernel='poly', degree=degree, C=c_param))])
 
-    def train(self, X: np.ndarray, y: np.ndarray) -> bool:
-        if len(X) != len(y): return False
+    def train(self, X, y):
         try:
             self.model.fit(X, y)
             self.is_trained = True
             return True
-        except:
-            return False
-
-    def predict_series(self, X: np.ndarray) -> np.ndarray:
-        if not self.is_trained: return np.zeros(len(X))
-        return self.model.predict(X)
-
-    def save(self, filepath: str = "models/svr_momentum_poly.pkl") -> bool:
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        joblib.dump(self.model, filepath)
-        return True
-
-# ---------------------------------------------------------------------------
-# RL A2C ENGINE (Options C, D)
-# ---------------------------------------------------------------------------
-class A2CEngine:
-    def __init__(self, learning_rate=0.01):
-        self.lr = learning_rate
-        self.weights = None 
-
-    def train(self, X, y):
-        features = X.values if hasattr(X, 'values') else X
-        labels = y.values if hasattr(y, 'values') else y
-        if self.weights is None:
-            self.weights = np.random.normal(0, 0.1, features.shape[1])
-        
-        # Simple policy gradient approximation for A2C state-action value
-        gradient = np.dot(features.T, labels)
-        self.weights += self.lr * gradient
+        except: return False
 
     def predict_series(self, X):
-        features = X.values if hasattr(X, 'values') else X
-        if self.weights is None:
-            self.weights = np.random.normal(0, 0.1, features.shape[1])
-        return np.dot(features, self.weights)
+        return self.model.predict(X) if self.is_trained else np.zeros(len(X))
+
+    def save(self, filepath):
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        joblib.dump(self.model, filepath)
+
+class A2CEngine:
+    def __init__(self, lr=0.01):
+        self.lr, self.weights = lr, None 
+
+    def train(self, X, y):
+        f, l = (X.values if hasattr(X, 'values') else X), (y.values if hasattr(y, 'values') else y)
+        if self.weights is None: self.weights = np.random.normal(0, 0.1, f.shape[1])
+        self.weights += self.lr * np.dot(f.T, l)
+
+    def predict_series(self, X):
+        f = X.values if hasattr(X, 'values') else X
+        if self.weights is None: self.weights = np.random.normal(0, 0.1, f.shape[1])
+        return np.dot(f, self.weights)
