@@ -21,15 +21,18 @@ class DeepHybridEngine:
         from tensorflow.keras.models import Model
         from tensorflow.keras.layers import Input, Conv1D, LSTM, Dense, Concatenate, Dropout
         
+        # Branch 1: Price/Technical Sequence (3D)
         price_in = Input(shape=(self.lookback, n_price_feats), name='price_input')
         x = Conv1D(filters=32, kernel_size=3, activation='relu')(price_in)
         x = LSTM(64, return_sequences=False)(x)
         x = Dropout(0.2)(x)
 
+        # Branch 2: Macro/Regime Context (2D)
         macro_in = Input(shape=(n_macro_feats,), name='macro_input')
         y = Dense(16, activation='relu')(macro_in)
         y = Dense(8, activation='relu')(y)
 
+        # Fusion Layer
         merged = Concatenate()([x, y])
         z = Dense(16, activation='relu')(merged)
         output = Dense(1, activation='linear')(z)
@@ -74,7 +77,7 @@ class DeepHybridEngine:
         if self.mode in file_map:
             model_file = file_map[self.mode]
             
-            # RECTIFIED: Enhanced Multi-Path & LFS Check for Hugging Face
+            # Path Resolution for Hugging Face LFS
             base_dir = os.path.dirname(os.path.abspath(__file__))
             possible_paths = [
                 os.path.join(base_dir, "models", model_file),
@@ -85,11 +88,9 @@ class DeepHybridEngine:
             
             model_path = None
             for p in possible_paths:
-                if os.path.exists(p):
-                    # Check if it's a real file (>2KB) and not an LFS pointer
-                    if os.path.getsize(p) > 2048:
-                        model_path = p
-                        break
+                if os.path.exists(p) and os.path.getsize(p) > 2048:
+                    model_path = p
+                    break
             
             if model_path:
                 try:
@@ -97,6 +98,8 @@ class DeepHybridEngine:
                     K.clear_session()
                     
                     current_model = load_model(model_path, compile=False)
+                    
+                    # Parallel Stream handling for Option K
                     if self.mode == "Option K" and X_macro is not None:
                         preds = current_model.predict([X_price, X_macro], verbose=0).flatten()
                     else:
@@ -105,7 +108,7 @@ class DeepHybridEngine:
                 except Exception as e:
                     print(f"❌ Load Error for {self.mode}: {e}")
             else:
-                print(f"⚠️ {self.mode}: File missing or LFS pointer detected at all paths.")
+                print(f"⚠️ {self.mode}: Model file missing or LFS pointer detected.")
 
         return np.zeros(len(X_price))
 
@@ -113,7 +116,7 @@ class DeepHybridEngine:
         if self.model: self.model.save(filepath)
 
 # ---------------------------------------------------------------------------
-# MOMENTUM ENGINE (UNTOUCHED)
+# MOMENTUM ENGINE (SVR)
 # ---------------------------------------------------------------------------
 class MomentumEngine:
     def __init__(self, c_param: float = 700.0, degree: int = 3):
@@ -144,7 +147,7 @@ class MomentumEngine:
         return True
 
 # ---------------------------------------------------------------------------
-# A2C ENGINE (UNTOUCHED)
+# A2C ENGINE (Reinforcement Learning)
 # ---------------------------------------------------------------------------
 class A2CEngine:
     def __init__(self, learning_rate=0.01):
@@ -166,7 +169,7 @@ class A2CEngine:
         return np.dot(features, self.weights)
 
 # ---------------------------------------------------------------------------
-# PRODUCTION UTILITY (RESTORED)
+# PRODUCTION UTILITY
 # ---------------------------------------------------------------------------
 def update_model_checkpoint(
     raw_df: pd.DataFrame,
