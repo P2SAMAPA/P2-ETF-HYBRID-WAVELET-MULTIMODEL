@@ -110,20 +110,19 @@ def predict_series(self, X_price, X_macro=None):
                     return self.model.predict([X_final, X_macro], verbose=0).flatten()
                 return self.model.predict(X_final, verbose=0).flatten()
 
-        # Default fallback to avoid crashes
-        return np.zeros(len(X_price))
+        # 3. Load model if not already in memory
+        if self.model is None:
+            from tensorflow.keras.models import load_model
+            try:
+                self.model = load_model(model_path, compile=False)
+                self.is_trained = True
+                st.success(f"🧠 {self.model_file} Neural Engine Active")
+            except Exception as e:
+                st.error(f"Error loading {model_file}: {e}")
+                return np.zeros(len(X_price))
 
-            # 3. Load model if not already in memory
-            if self.model is None:
-                from tensorflow.keras.models import load_model
-                try:
-                    self.model = load_model(model_path, compile=False)
-                    self.is_trained = True
-                    st.success(f"🧠 {self.mode} Neural Engine Active (Loaded {model_file})")
-                except Exception as e:
-                    st.error(f"Error loading {model_file}: {e}")
-                    return np.zeros(len(X_price))
-
+        # Final prediction if mode isn't "Option K"
+        return self.model.predict(X_final, verbose=0).flatten()
             # 4. Handle 3D Reshaping for CNN/LSTM
             # If data is 2D (Samples, Features), we must make it 3D (Samples, Lookback, Features)
             try:
