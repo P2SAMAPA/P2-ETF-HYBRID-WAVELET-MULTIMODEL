@@ -1,0 +1,36 @@
+name: Cloud Model Trainer
+
+on:
+  push:
+    paths:
+      - 'models/engine.py'  # Run if you update engine logic
+  workflow_dispatch:        # Allows manual "Run" button in GitHub UI
+
+jobs:
+  build-and-train:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Important: Allows the runner to push files back to your repo
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: pip install -r requirements_train.txt
+
+      - name: Train Deep Learning Models
+        run: python train_models.py
+
+      - name: Commit and Push Model Files
+        run: |
+          git config --global user.name 'GitHub Action Bot'
+          git config --global user.email 'action@github.com'
+          git add models/*.h5
+          git commit -m "Auto-update deep learning weights [.h5]" || echo "No changes to commit"
+          git push
