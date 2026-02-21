@@ -49,6 +49,25 @@ jobs:
           git add models/*.h5
           
           # 5. Commit and Push
-          # We use --force to resolve binary conflict issues with the remote
+         - name: Commit and Push Model Files
+        run: |
+          # 1. Setup Identity
+          git config --global user.name 'GitHub Action Bot'
+          git config --global user.email 'action@github.com'
+          
+          # 2. Install and Initialize Git LFS
+          # This is required by Hugging Face for .h5 files
+          git lfs install
+          
+          # 3. Track .h5 files as Large Files
+          # This creates/updates the .gitattributes file
+          git lfs track "models/*.h5"
+          git add .gitattributes
+          
+          # 4. Add the model files
+          git add models/*.h5
+          
+          # 5. Commit and Push
+          # We use --force to overwrite any remote conflicts caused by the binary rejection
           git commit -m "🤖 Auto-update neural weights via LFS" || echo "No changes"
           git push --force
