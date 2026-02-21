@@ -73,7 +73,7 @@ class DeepHybridEngine:
         
         if self.mode in file_map:
             model_file = file_map[self.mode]
-            # RECTIFIED PATHING: Look into the 'models' folder relative to this file
+            # RECTIFIED PATHING: Ensure absolute path to 'models' folder
             base_dir = os.path.dirname(os.path.abspath(__file__))
             model_path = os.path.join(base_dir, "models", model_file)
             
