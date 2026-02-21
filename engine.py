@@ -20,9 +20,6 @@ class DeepHybridEngine:
         self.model = None
         self.is_trained = False
         
-        # Internal imports to keep the global namespace clean
-        import tensorflow as tf
-
     def _build_parallel_model(self, n_price_feats, n_macro_feats):
         """Architecture for Option K: Dual-Input Functional API"""
         from tensorflow.keras.models import Model
@@ -71,13 +68,27 @@ class DeepHybridEngine:
             print(f"DL Training Error: {e}")
             return False
 
+    def predict_svr_fallback(self, X_price):
+        """Helper to provide SVR fallback when DL models are missing"""
+        try:
+            svr_path = os.path.join(os.getcwd(), "models/svr_momentum_poly.pkl")
+            if os.path.exists(svr_path):
+                svr_model = joblib.load(svr_path)
+                # If X_price is 3D, take the last time step for SVR
+                if len(X_price.shape) == 3:
+                    X_2d = X_price[:, -1, :]
+                    return svr_model.predict(X_2d)
+                return svr_model.predict(X_price)
+        except:
+            pass
+        return np.zeros(len(X_price))
+
     def predict_series(self, X_price, X_macro=None):
         """Standardized Prediction Logic for Options I, J, K"""
         import os
         import numpy as np
         from tensorflow.keras.models import load_model
         
-        # 1. Path Mapping
         file_map = {
             "Option I": "opt_i_cnn.h5",
             "Option J": "opt_j_cnn_lstm.h5",
@@ -88,54 +99,25 @@ class DeepHybridEngine:
             # Join paths correctly for the Hugging Face environment
             model_path = os.path.join(os.getcwd(), "models", file_map[self.mode])
             
-            # 2. Force Load if the file exists
             if os.path.exists(model_path):
                 try:
-                    # We load it every time the engine is refreshed to ensure it's the real DL model
+                    # Force load the current physical file
                     current_model = load_model(model_path, compile=False)
                     print(f"✅ ACTIVE: Loading {self.mode} from {model_path}")
                     
-                    # 3. Predict using the loaded DL model
-                    # (Note: X_price needs to be 3D [samples, window, features])
-                    preds = current_model.predict(X_price, verbose=0).flatten()
-                    return preds
+                    # Execute Prediction based on mode
+                    if self.mode == "Option K":
+                        if X_macro is not None:
+                            return current_model.predict([X_price, X_macro], verbose=0).flatten()
+                    
+                    return current_model.predict(X_price, verbose=0).flatten()
                 except Exception as e:
                     print(f"❌ Load Error for {self.mode}: {e}")
             else:
-                print(f"⚠️ Missing File: {model_path}. Defaulting to Option A logic.")
+                print(f"⚠️ Missing File: {model_path}. Defaulting to SVR logic.")
 
-        # 4. Fallback: If DL fails or file is missing, use the SVR logic (Option A)
-        # This is why your numbers currently look the same!
+        # Fallback: If DL fails or file is missing
         return self.predict_svr_fallback(X_price)
-
-        # 2. Ensure we have a model to use
-        if self.model is None:
-            return np.zeros(len(X_price))
-
-        # 3. AUTO-RESHAPE: Ensure input is 3D (Samples, Lookback, Features)
-        try:
-            if len(X_price.shape) == 2:
-                # Sliding window conversion
-                X_3d = np.array([X_price[i-self.lookback:i] for i in range(self.lookback, len(X_price)+1)])
-                # Pad start with zeros to maintain series length alignment
-                padding = np.zeros((self.lookback-1, self.lookback, X_price.shape[1]))
-                X_final = np.vstack([padding, X_3d])
-            else:
-                X_final = X_price
-        except Exception:
-            X_final = X_price # Fallback
-
-        # 4. Execute Prediction based on mode
-        try:
-            if self.mode == "Option K":
-                if X_macro is None: 
-                    return np.zeros(len(X_price))
-                return self.model.predict([X_final, X_macro], verbose=0).flatten()
-            
-            return self.model.predict(X_final, verbose=0).flatten()
-        except Exception as e:
-            print(f"Prediction Error in {self.mode}: {e}")
-            return np.zeros(len(X_price))
 
     def save(self, filepath):
         if self.model: self.model.save(filepath)
