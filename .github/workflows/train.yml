@@ -2,9 +2,9 @@ name: Cloud Model Trainer
 
 on:
   push:
-    paths:
-      - 'models/engine.py'
-  workflow_dispatch: # This allows you to run it MANUALLY
+    branches:
+      - main
+  workflow_dispatch: # This allows you to run it MANUALLY from the Actions tab
 
 jobs:
   build-and-train:
@@ -13,7 +13,7 @@ jobs:
       - name: Checkout (Latest Only)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1 # This is the "clean history" shield
+          fetch-depth: 1
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -37,13 +37,14 @@ jobs:
           from huggingface_hub import HfApi
           import os
           api = HfApi()
-          # The fix: path_in_repo='models' ensures files land in the subfolder
-          api.upload_folder(
-              folder_path='models',
-              path_in_repo='models',
-              repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
-              repo_type='space',
-              token=os.environ['HF_TOKEN']
-          )
+          # Ensures generated .h5 and .pkl files land in the correct 'models' subfolder
+          if os.path.exists('models'):
+              api.upload_folder(
+                  folder_path='models',
+                  path_in_repo='models',
+                  repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
+                  repo_type='space',
+                  token=os.environ['HF_TOKEN']
+              )
           "
           echo "✅ Models uploaded to /models subfolder via API."
