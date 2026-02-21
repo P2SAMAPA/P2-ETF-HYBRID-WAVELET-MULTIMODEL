@@ -1,8 +1,18 @@
-# Core Data
+# Data Fetching & APIs
+yfinance
+pandas_datareader
+huggingface_hub
+requests
+
+# Signal Processing (Used in Wavelet/BSTS logic)
+PyWavelets
+statsmodels
+
+# Core Data & ML
 pandas
 numpy==1.24.3
 scikit-learn
 joblib
 
-# Lightweight Deep Learning
-tensorflow-cpu==2.15.0  # Saves 500MB+ vs full version
+# Deep Learning (Options I, J, K)
+tensorflow-cpu==2.15.0
