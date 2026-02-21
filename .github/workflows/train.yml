@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-          fetch-depth: 0 # Required for a clean push to Hugging Face
+          fetch-depth: 0 # Required for a healthy push back to the hub
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -38,17 +38,19 @@ jobs:
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
           
-          # 2. Initialize and Install LFS in the Runner
+          # 2. Initialize and Install LFS in the Runner environment
           git lfs install
           
-          # 3. Force track the extensions and capture attributes
+          # 3. Explicitly track .h5 files as Large Files
+          # This generates/updates the .gitattributes file correctly
           git lfs track "models/*.h5"
           git add .gitattributes
           
-          # 4. Add the generated models
+          # 4. Stage the generated model weights
           git add models/*.h5
           
           # 5. Commit and Force Push
-          # Force push is necessary to clear the "rejected binary" state on the remote
-          git commit -m "🤖 Auto-update neural weights via LFS" || echo "No changes"
+          # --force is required because your previous failed attempts
+          # left the remote in a state that rejects standard merges.
+          git commit -m "🤖 Auto-update neural weights via LFS" || echo "No changes to commit"
           git push --force
