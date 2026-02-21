@@ -1,4 +1,6 @@
-# Ignore the binary models so the Git Sync doesn't crash
-models/*.h5
-.ipynb_checkpoints/
+# Ignore compiled Python files
 __pycache__/
+*.py[cod]
+
+# Ignore the heavy model weights so Git Sync doesn't crash
+models/*.h5
