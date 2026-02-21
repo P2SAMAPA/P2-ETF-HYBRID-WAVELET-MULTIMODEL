@@ -193,27 +193,7 @@ with st.sidebar:
     # Use .get() to avoid errors if last_refresh isn't set yet
     last_ref = st.session_state.get('last_refresh', 'Pending')
     st.caption(f"✨ Last sync: {last_ref}")
-    import os
-import time
-
-# --- MODEL INTEGRITY CHECK ---
-st.sidebar.markdown("---")
-st.sidebar.subheader("🤖 Neural Engine Status")
-
-model_files = {
-    "Option I": "opt_i_cnn.h5",
-    "Option K": "opt_k_dual.h5"
-}
-
-for opt_name, file_name in model_files.items():
-    path = os.path.join("models", file_name)
-    if os.path.exists(path):
-        mtime = os.path.getmtime(path)
-        last_updated = time.strftime('%Y-%m-%d %H:%M', time.localtime(mtime))
-        st.sidebar.success(f"✅ {opt_name}: Active\n(Updated: {last_updated})")
-    else:
-        st.sidebar.warning(f"⚠️ {opt_name}: Not Found\n(Run Cloud Trainer)")
-    
+      
     # ... rest of your sidebar code (slider, radio, etc.)
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Model Logic", [
