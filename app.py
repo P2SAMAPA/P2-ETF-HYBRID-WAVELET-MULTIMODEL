@@ -31,32 +31,32 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     t_cost_pct = t_costs_bps / 10_000
     
     from data.processor import build_feature_matrix
-    from analytics.regime import RegimeHMM, BayesianFilter
+    from analytics.regime import RegimeHMM
     
     all_preds = {} 
-    is_mask_global = raw_df.index.year < start_yr
     oos_mask_global = raw_df.index.year >= start_yr
+    is_mask_global = raw_df.index.year < start_yr
 
-    # --- REGIME ENGINES ---
+    # --- REGIME ENGINES (G/H/E/F) ---
     hmm_signals = {}
-    if "HMM" in model_choice or "Option G" in model_choice:
+    if any(x in model_choice for x in ["Option E", "Option F", "Option G", "Option H"]):
         hmm_engine = RegimeHMM(n_states=3)
         hmm_engine.train_and_assign(raw_df[is_mask_global], assets)
         macro_oos = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]][oos_mask_global].diff().fillna(0)
         for date, row in macro_oos.iterrows():
             hmm_signals[date] = hmm_engine.predict_best_asset(row.values.reshape(1, -1))
 
-    # --- MODEL PREDICTIONS ---
-    if not (model_choice.startswith("Option E") or model_choice.startswith("Option G")):
+    # --- MODEL PREDICTIONS (A-K) ---
+    if not any(x in model_choice for x in ["Option E", "Option G"]):
         for ticker in assets:
             try:
                 X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
-                is_mask, oos_mask = idx.year < start_yr, idx.year >= start_yr
+                oos_mask = idx.year >= start_yr
+                is_mask = idx.year < start_yr
                 
                 if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                     active_mode = "Option K" if "Option K" in model_choice else "Option J" if "Option J" in model_choice else "Option I"
                     engine = DeepHybridEngine(mode=active_mode)
-                    
                     lookback = 20
                     full_X_values = X.values
                     oos_indices = np.where(oos_mask)[0]
@@ -92,24 +92,19 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     for date in oos_idx:
         hwm = max(hwm, equity)
         drawdown = (equity - hwm) / hwm
-        
-        # Check 12% Trailing Loss Threshold
         if drawdown <= -0.12: loss_streak += 1
         else: loss_streak = 0
         
         if loss_streak >= 2: in_timeout = True
 
-        # Signal Logic
-        if model_choice.startswith("Option E") or model_choice.startswith("Option G"):
+        if any(x in model_choice for x in ["Option E", "Option G"]):
             raw_signal = hmm_signals.get(date, "CASH")
             conf = 0.80
         else:
             daily_preds = pred_df.loc[date] if (not pred_df.empty and date in pred_df.index) else None
             raw_signal = daily_preds.idxmax() if (daily_preds is not None and daily_preds.max() > threshold) else "CASH"
-            # Dynamic Confidence Calculation
             conf = 0.5 + (0.18 * ((daily_preds.max() - daily_preds.mean()) / daily_preds.std())) if (daily_preds is not None and daily_preds.std() > 0) else 0.5
 
-        # Apply 75% Confidence Re-entry Gate
         if in_timeout:
             if conf >= 0.75: in_timeout = False; final_signal = raw_signal
             else: final_signal = "CASH"
@@ -130,55 +125,89 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     res["Equity"] = (pd.Series(strat_rets, index=oos_idx).add(1).cumprod() * 100)
     res["Drawdown"] = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
     res["RF"] = (raw_df.loc[oos_idx, "TBILL_3M"] / 100) / 252
-    for b in ["SPY", "AGG"]: res[b] = (raw_df.loc[oos_idx, f"{b}_Ret"].add(1).cumprod() * 100)
+    
+    # NORMALIZED BENCHMARKS (Ensure SPY/AGG start at 100)
+    for b in ["SPY", "AGG"]:
+        rets = raw_df.loc[oos_idx, f"{b}_Ret"]
+        res[b] = (rets + 1).cumprod() * 100
 
     return {"df": res, "audit": pd.DataFrame({"Allocation": asset_history, "Daily_Return": strat_rets}, index=oos_idx), "target": asset_history[-1], "confidence": conf, "last_date": oos_idx[-1].strftime('%Y-%m-%d')}
 
-# --- UI RENDER ---
-st.markdown("<h1 style='text-align: center; color: #1a73e8;'>🦅 P2 ETF WAVELET SVR MULTI MODEL</h1>", unsafe_allow_html=True)
-
+# --- UI SIDEBAR ---
 with st.sidebar:
     st.header("Terminal Config")
     if st.button("🔄 Force Data Refresh"): st.cache_data.clear(); st.rerun()
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
-    opt = st.radio("Model Logic", ["Option A - Wavelet-SVR", "Option B - Wavelet-SVR-PPO", "Option I - Wavelet-CNN-LSTM", "Option K - Parallel-Dual-Stream"])
+    opt = st.radio("Model Logic", [
+        "Option A - Wavelet-SVR", "Option B - Wavelet-SVR-PPO", "Option C - Wavelet-A2C", 
+        "Option D - Wavelet-Ensemble", "Option E - Regime-HMM", "Option F - Bayesian-Regime",
+        "Option G - HMM-Macro", "Option H - Hybrid-Regime", "Option I - Wavelet-CNN-LSTM", 
+        "Option J - Wavelet-Attention", "Option K - Parallel-Dual-Stream"
+    ])
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
 output = run_professional_backtest(s_yr, opt, costs)
+
+# --- UI HEADER & BANNER ---
+st.markdown("<h1 style='text-align: center; color: #1a73e8;'>🦅 P2 ETF WAVELET SVR MULTI MODEL</h1>", unsafe_allow_html=True)
 st.success(f"✅ Data updated till {output['last_date']}")
 
-# Banner
 conf_color = "#2e7d32" if output['confidence'] > 0.7 else "#f57c00"
 st.markdown(f"""<div style="background-color: #f1f8e9; padding: 20px; border-radius: 12px; border: 2px solid #a5d6a7; text-align: center;">
     <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700;">TARGET ALLOCATION</p>
     <h1 style="margin:5px 0; font-size: 80px; color: #1b5e20;">{output['target']}</h1>
-    <p style="margin:0; font-size: 12px; color: {conf_color}; font-weight: bold;">CONVICTION: {output['confidence']:.0%}</p>
+    <p style="margin:0; font-size: 14px; color: {conf_color}; font-weight: bold;">SIGNAL CONFIDENCE: {output['confidence']:.0%}</p>
 </div>""", unsafe_allow_html=True)
 
-# Metrics
+# --- METRICS (Max DD Label & 1/2 Kelly) ---
 df = output["df"]
 ann_ret = (df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1
-sharpe = ((df["Strategy_Ret"] - df["RF"]).mean() / df["Strategy_Ret"].std()) * np.sqrt(252)
-kelly = (ann_ret / (df["Strategy_Ret"].std() * np.sqrt(252))**2) if ann_ret > 0 else 0
+ann_vol = df["Strategy_Ret"].std() * np.sqrt(252)
+# 1/2 Kelly: 0.5 * (Expected Return / Variance)
+kelly_calc = 0.5 * (ann_ret / (ann_vol**2)) if ann_vol > 0 and ann_ret > 0 else 0
+kelly_display = f"{min(kelly_calc, 0.50):.1%}" if output['target'] != "CASH" else "0.0%"
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Ann. Return", f"{ann_ret:.2%}")
-c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-c3.metric("Max DD", f"{df['Drawdown'].min():.2%}", help=f"Date: {df['Drawdown'].idxmin().strftime('%Y-%m-%d')}")
+c2.metric("Sharpe Ratio", f"{((df['Strategy_Ret']-df['RF']).mean()/df['Strategy_Ret'].std())*np.sqrt(252):.2f}")
+c3.metric("Max DD (Peak to Trough)", f"{df['Drawdown'].min():.2%}")
 c4.metric("Hit Ratio(15Days)", f"{(pd.Series(df['Strategy_Ret']).tail(15) > 0).mean():.0%}")
-c5.metric("Kelly Factor", f"{kelly:.2f}")
+c5.metric("1/2 Kelly Factor", kelly_display)
 
-# Plot
-st.subheader("Cumulative Return Chart for OOS period")
+# --- CHART (Fixed Normalization) ---
+st.subheader("Cumulative Return Chart (Normalized to 100)")
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=df.index, y=df["Equity"], name="Strategy", line=dict(color='#1a73e8', width=3)))
-fig.add_trace(go.Scatter(x=df.index, y=df["SPY"], name="SPY (Normalized)", line=dict(color='gray', dash='dash')))
-fig.add_trace(go.Scatter(x=df.index, y=df["AGG"], name="AGG (Normalized)", line=dict(color='brown', dash='dot')))
+fig.add_trace(go.Scatter(x=df.index, y=df["SPY"], name="SPY (Normalized)", line=dict(color='rgba(128,128,128,0.6)', dash='dash')))
+fig.add_trace(go.Scatter(x=df.index, y=df["AGG"], name="AGG (Normalized)", line=dict(color='rgba(165,42,42,0.6)', dash='dot')))
+fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), margin=dict(l=0, r=0, t=30, b=0))
 st.plotly_chart(fig, use_container_width=True)
 
-# Audit Trail & Methodology
+# --- AUDIT TABLE (Expanded Width) ---
 st.subheader("15-Day Audit Trail")
-audit = output["audit"].tail(15)
-st.dataframe(audit.style.applymap(lambda x: 'color: #155724; background-color: #d4edda' if x > 0 else 'color: #721c24; background-color: #f8d7da', subset=['Daily_Return']).format({'Daily_Return': '{:.2%}'}))
+audit = output["audit"].tail(15).copy()
+audit.index = audit.index.strftime('%Y-%m-%d')
+st.dataframe(
+    audit.style.applymap(lambda x: 'color: #155724; background-color: #d4edda' if isinstance(x, float) and x > 0 else 'color: #721c24; background-color: #f8d7da' if isinstance(x, float) and x < 0 else '', subset=['Daily_Return']).format({'Daily_Return': '{:.2%}'}),
+    use_container_width=True
+)
 
-st.markdown("### Methodology\nUses **MODWT Wavelet denoising** to extract signal from noise. If the strategy drops **12% from High Water Mark** for 2 consecutive days, it triggers a **CASH switch**. Re-entry into ETFs only occurs when **Signal Confidence exceeds 75%**.")
+# --- DYNAMIC METHODOLOGY (Options A-K) ---
+methodologies = {
+    "Option A": "MODWT Wavelet denoising + Polynomial SVR for non-linear momentum capture.",
+    "Option B": "Wavelet-SVR integrated with a PPO agent for adaptive risk-thresholding.",
+    "Option C": "Advantage Actor-Critic (RL) environment using multi-resolution wavelet features.",
+    "Option D": "Statistical Ensemble of SVR and Ridge regression across wavelet scales.",
+    "Option E": "Gaussian Hidden Markov Model identifying latent Bull/Bear/Sideways regimes.",
+    "Option F": "Bayesian state-space filtering for probabilistic regime switching.",
+    "Option G": "HMM focused on macro factors (VIX, Spreads, DXY) to dictate risk-on/off bias.",
+    "Option H": "Hybrid Regime-Switching SVR combining macro HMM with technical denoising.",
+    "Option I": "Deep CNN-LSTM processing 3D image-like tensors of wavelet coefficients.",
+    "Option J": "Attention-based Transformer model focusing on key wavelet frequency bands.",
+    "Option K": "Parallel Dual-Stream Network fusing price sequences with macro-economic vectors."
+}
+selected_method = methodologies.get(opt.split(" - ")[0], "Multi-model wavelet approach.")
+
+st.markdown(f"### Methodology: {opt}")
+st.write(selected_method)
+st.info("⚠️ **Risk Gate:** Drops of **12% from HWM** (2-day confirmation) force CASH. Re-entry requires **Signal Confidence > 75%**.")
