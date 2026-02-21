@@ -3,34 +3,50 @@ name: Cloud Model Trainer
 on:
   push:
     paths:
-      - 'models/engine.py'  # Run if you update engine logic
-  workflow_dispatch:        # Allows manual "Run" button in GitHub UI
+      - 'models/engine.py'
+  workflow_dispatch: 
 
 jobs:
   build-and-train:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Important: Allows the runner to push files back to your repo
+      contents: write 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # 1. Setup Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
+      # 2. Install everything from your new requirements_train.txt
       - name: Install Dependencies
-        run: pip install -r requirements_train.txt
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements_train.txt
 
+      # 3. Run the training script
       - name: Train Deep Learning Models
         run: python train_models.py
 
+      # 4. Debug and Sync (This is the section I fixed for you)
       - name: Commit and Push Model Files
         run: |
+          # Check what was created so we can see it in the GitHub logs
+          echo "Checking for generated files..."
+          ls -R models/ || echo "Models directory does not exist yet"
+          
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
-          git add models/*.h5
+          
+          # Stage the files safely
+          # Using 'git add models/' is safer than 'models/*.h5' if the folder is empty
+          git add models/ || echo "No models folder to add"
+          
+          # Commit only if there are changes, otherwise move on
           git commit -m "Auto-update deep learning weights [.h5]" || echo "No changes to commit"
+          
           git push
