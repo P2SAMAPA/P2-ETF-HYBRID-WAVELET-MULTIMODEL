@@ -1,3 +1,7 @@
+# Build Tools
+setuptools
+wheel
+
 # UI & Framework
 streamlit
 plotly
@@ -22,6 +26,5 @@ scikit-learn
 joblib
 
 # Deep Learning
-# RECTIFIED: Added git-python to handle LFS pointer hydration
 tensorflow-cpu==2.15.0
 git-python
