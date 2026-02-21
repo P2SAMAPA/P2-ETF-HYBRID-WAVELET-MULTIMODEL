@@ -75,22 +75,29 @@ class DeepHybridEngine:
         """Standardized Prediction Logic for Options I, J, K"""
         import streamlit as st
         
+        # UPDATED FILE MAP: Matching your automated filenames
         file_map = {
             "Option I": "opt_i_cnn.h5",
-            "Option J": "opt_j_cnn.h5", 
-            "Option K": "opt_k_dual.h5"
+            "Option J": "opt_j_cnn_lstm.h5", # Updated to match automated name
+            "Option K": "opt_k_hybrid.h5"    # Updated to match automated name
         }
         
         # 1. Load Model if needed
         if self.mode in file_map:
             model_path = os.path.join("models", file_map[self.mode])
+            
+            # DEBUG LOG: This will show up in your Hugging Face Logs
+            if not os.path.exists(model_path):
+                print(f"⚠️ Path not found: {model_path}. Fallback to SVR likely.")
+            
             if os.path.exists(model_path) and self.model is None:
                 from tensorflow.keras.models import load_model
                 try:
                     self.model = load_model(model_path, compile=False)
                     self.is_trained = True
+                    print(f"✅ Successfully loaded {self.mode} from {model_path}")
                 except Exception as e:
-                    print(f"Error loading {model_path}: {e}")
+                    print(f"❌ Error loading {model_path}: {e}")
                     return np.zeros(len(X_price))
 
         # 2. Ensure we have a model to use
