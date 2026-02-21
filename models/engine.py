@@ -82,6 +82,8 @@ class DeepHybridEngine:
         Production Predictor: Attempts to load cloud-trained weights (.h5) 
         before defaulting to in-memory model.
         """
+        import streamlit as st
+        
         # 1. Attempt to load the cloud-trained model if current model is empty
         if self.model is None:
             file_map = {
@@ -96,6 +98,7 @@ class DeepHybridEngine:
                 try:
                     self.model = load_model(model_path, compile=False)
                     self.is_trained = True
+                    # Optional: st.toast(f"Loaded {self.mode} Brain", icon="🧠")
                 except Exception as e:
                     print(f"Error loading {model_path}: {e}")
 
@@ -103,14 +106,30 @@ class DeepHybridEngine:
         if not self.is_trained or self.model is None: 
             return np.zeros(len(X_price))
         
-        # 3. Execution based on mode
-        if self.mode == "Option K":
-            # X_macro must be provided for Option K
-            if X_macro is None:
-                return np.zeros(len(X_price))
-            return self.model.predict([X_price, X_macro], verbose=0).flatten()
-        
-        return self.model.predict(X_price, verbose=0).flatten()
+        # 3. AUTO-RESHAPE: Ensure input is 3D (Samples, Lookback, Features)
+        # Deep models trained in cloud expect 3D blocks.
+        if len(X_price.shape) == 2:
+            # Reconstruct the temporal blocks for inference
+            try:
+                X_3d = np.array([X_price[i-self.lookback:i] for i in range(self.lookback, len(X_price)+1)])
+                # Pad start with zeros to maintain series length alignment
+                padding = np.zeros((self.lookback-1, self.lookback, X_price.shape[1]))
+                X_final = np.vstack([padding, X_3d])
+            except:
+                X_final = X_price # Fallback
+        else:
+            X_final = X_price
+
+        # 4. Execution based on mode
+        try:
+            if self.mode == "Option K":
+                if X_macro is None: return np.zeros(len(X_price))
+                return self.model.predict([X_final, X_macro], verbose=0).flatten()
+            
+            return self.model.predict(X_final, verbose=0).flatten()
+        except Exception as e:
+            st.error(f"Prediction Error in {self.mode}: {e}")
+            return np.zeros(len(X_price))
 
     def save(self, filepath):
         if self.model: self.model.save(filepath)
