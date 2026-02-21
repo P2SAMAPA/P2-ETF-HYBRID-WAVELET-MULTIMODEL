@@ -2,8 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import pandas_market_calendars as mcal
+from datetime import datetime, timedelta, time
 from data.loader import load_raw_data
 from engine import MomentumEngine, A2CEngine, DeepHybridEngine 
 
@@ -16,15 +15,19 @@ st.markdown("""
     div[data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; }
     [data-testid="stMetricValue"] { color: #1a73e8 !important; font-size: 24px !important; }
     [data-testid="stMetricLabel"] { font-weight: 700; text-transform: uppercase; font-size: 11px; color: #5f6368 !important; }
-    .stHeader { font-family: 'Helvetica Neue', sans-serif; color: #1a202c; }
     </style>
 """, unsafe_allow_html=True)
 
-def get_next_nyse_date():
-    nyse = mcal.get_calendar('NYSE')
+def get_next_trading_day_simple():
+    """Calculates next weekday (Mon-Fri) as a proxy for NYSE calendar."""
     now = datetime.now()
-    schedule = nyse.schedule(start_date=now, end_date=now + timedelta(days=7))
-    return schedule.index[0].strftime('%d %B %Y')
+    # If it's Friday, Saturday or Sunday, move to next Monday
+    if now.weekday() >= 4: # Friday or weekend
+        days_ahead = (7 - now.weekday()) if now.weekday() > 4 else 3
+        next_day = now + timedelta(days=days_ahead)
+    else:
+        next_day = now + timedelta(days=1)
+    return next_day.strftime('%d %B %Y')
 
 @st.cache_data(ttl=3600)
 def run_professional_backtest(start_yr, model_choice, t_costs_bps):
@@ -68,7 +71,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     for d in common_idx:
         hwm = max(hwm, equity)
         drawdown = (equity - hwm) / hwm
-        if drawdown <= -0.18: in_timeout = True
+        if drawdown <= -0.18: in_timeout = True # Updated to 18%
         
         dp = df_p.loc[d]
         raw_sig = dp.idxmax() if dp.max() > (0.0015 if "Option B" in model_choice else 0) else "CASH"
@@ -85,15 +88,14 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         equity *= (1 + day_r)
         rets.append(day_r); hist.append(current_asset); confs.append(conf)
 
-    # 3. BENCHMARK FIX (Normalized to 100 at OOS Start)
+    # 3. BENCHMARK ALIGNMENT
     res = pd.DataFrame({"Equity": (pd.Series(rets).add(1).cumprod()*100).values}, index=common_idx)
     res["Strategy_Ret"] = rets
     res["Drawdown"] = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
     res["RF"] = (raw_df.loc[common_idx, "TBILL_3M"] / 100) / 252
     
     for b in ["SPY", "AGG"]:
-        b_rets = raw_df.loc[common_idx, f"{b}_Ret"]
-        res[b] = (b_rets + 1).cumprod() * 100
+        res[b] = (raw_df.loc[common_idx, f"{b}_Ret"] + 1).cumprod() * 100
     
     return {"df": res, "audit": pd.DataFrame({"Allocation": hist, "Return": rets}, index=common_idx), 
             "target": hist[-1], "conf": confs[-1], "date": common_idx[-1].strftime('%Y-%m-%d')}
@@ -127,13 +129,13 @@ st.title("P2 Wavelet Multi-Model")
 
 st.markdown(f"""
     <div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
-        <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction for NYSE Trading Date: {get_next_nyse_date()}</p>
+        <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction for NYSE Trading Date: {get_next_trading_day_simple()}</p>
         <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out['target']}</h1>
         <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Signal Conviction: {out['conf']:.1%}</p>
     </div>
 """, unsafe_allow_html=True)
 
-# --- UI: METRIC ROW ---
+# --- UI: METRICS ---
 ann_ret = (df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1
 sharpe = ((df["Strategy_Ret"] - df["RF"]).mean() / df["Strategy_Ret"].std()) * np.sqrt(252)
 max_dd_val = df["Drawdown"].min()
