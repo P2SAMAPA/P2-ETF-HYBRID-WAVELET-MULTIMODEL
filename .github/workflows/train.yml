@@ -7,7 +7,7 @@ on:
     branches:
       - main
     paths:
-      - '**' # Triggers on EVERY change in the repo
+      - '**' 
   workflow_dispatch: 
 
 jobs:
@@ -30,7 +30,6 @@ jobs:
           pip uninstall -y numpy
           pip install "numpy<2.0"
           pip install -r requirements_train.txt
-          # Verify version to ensure no "Undefined Symbol" crash
           python -c "import numpy; print(f'VERIFIED NUMPY VERSION: {numpy.__version__}')"
 
       - name: Run Trainer
@@ -39,19 +38,26 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python train_models.py
 
+      # --- RECTIFIED: NEW STEP TO SAVE MODELS TO GITHUB ---
+      - name: Commit and Push Models to GitHub
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add models/*.h5 models/*.pkl
+          # Only commit if there are actually changes to the models
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-update trained models [skip ci]" && git push)
+      # ----------------------------------------------------
+
       - name: Sync Everything to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # This Python script uses the official HF API to bypass Git's 10MB limit
           python -c "
           from huggingface_hub import HfApi
           import os
           api = HfApi()
           print('🚀 Starting total sync to Hugging Face...')
           
-          # Uploads EVERYTHING (app.py, engine.py, models, analytics)
-          # API method handles .h5 and .pkl files correctly
           api.upload_folder(
               folder_path='.',
               repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
