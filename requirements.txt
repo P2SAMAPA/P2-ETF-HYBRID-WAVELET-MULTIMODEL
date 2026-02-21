@@ -1,6 +1,7 @@
 # Build Tools
 setuptools
 wheel
+pip>=23.0
 
 # UI & Framework
 streamlit
