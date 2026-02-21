@@ -13,7 +13,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fixed hyphen syntax here
+          fetch-depth: 0 # Fixed hyphen syntax to resolve the error
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -33,10 +33,11 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # 1. Stop Git from trying to sync these binaries (the cause of the rejection)
+          # 1. Stop Git from tracking these binaries (the cause of the rejection)
+          # This allows the background 'sync-to-hub' to pass by making it ignore the .h5 files
           git rm -r --cached models/*.h5 || echo "Files already untracked"
           
-          # 2. Direct API upload bypasses the Git 'sync-to-hub' binary wall
+          # 2. Upload via API (Bypasses the Git binary wall entirely)
           python -c "
           from huggingface_hub import HfApi
           import os
@@ -48,4 +49,4 @@ jobs:
               token=os.environ['HF_TOKEN']
           )
           "
-          print('✅ Upload complete. Git sync will now ignore binaries.')
+          print('✅ API Upload successful. The background sync will now ignore binaries.')
