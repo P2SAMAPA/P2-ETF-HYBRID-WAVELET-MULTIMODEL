@@ -171,9 +171,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
 st.markdown("<h1 style='text-align: center; color: #1a73e8; margin-bottom: 0;'>🦅 P2 ETF WAVELET SVR MULTI MODEL</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #5f6368; font-weight: 500;'>Institutional Strategy Performance & Signal Console</p>", unsafe_allow_html=True)
 
-with st.sidebar:
-    st.header("Terminal Config")
-    
     
 with st.sidebar:
     st.header("Terminal Config")
