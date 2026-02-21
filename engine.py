@@ -73,32 +73,40 @@ class DeepHybridEngine:
 
     def predict_series(self, X_price, X_macro=None):
         """Standardized Prediction Logic for Options I, J, K"""
-        import streamlit as st
+        import os
+        import numpy as np
+        from tensorflow.keras.models import load_model
         
-        # UPDATED FILE MAP: Matching your automated filenames
+        # 1. Path Mapping
         file_map = {
             "Option I": "opt_i_cnn.h5",
-            "Option J": "opt_j_cnn_lstm.h5", # Updated to match automated name
-            "Option K": "opt_k_hybrid.h5"    # Updated to match automated name
+            "Option J": "opt_j_cnn_lstm.h5",
+            "Option K": "opt_k_hybrid.h5"
         }
         
-        # 1. Load Model if needed
         if self.mode in file_map:
-            model_path = os.path.join("models", file_map[self.mode])
+            # Join paths correctly for the Hugging Face environment
+            model_path = os.path.join(os.getcwd(), "models", file_map[self.mode])
             
-            # DEBUG LOG: This will show up in your Hugging Face Logs
-            if not os.path.exists(model_path):
-                print(f"⚠️ Path not found: {model_path}. Fallback to SVR likely.")
-            
-            if os.path.exists(model_path) and self.model is None:
-                from tensorflow.keras.models import load_model
+            # 2. Force Load if the file exists
+            if os.path.exists(model_path):
                 try:
-                    self.model = load_model(model_path, compile=False)
-                    self.is_trained = True
-                    print(f"✅ Successfully loaded {self.mode} from {model_path}")
+                    # We load it every time the engine is refreshed to ensure it's the real DL model
+                    current_model = load_model(model_path, compile=False)
+                    print(f"✅ ACTIVE: Loading {self.mode} from {model_path}")
+                    
+                    # 3. Predict using the loaded DL model
+                    # (Note: X_price needs to be 3D [samples, window, features])
+                    preds = current_model.predict(X_price, verbose=0).flatten()
+                    return preds
                 except Exception as e:
-                    print(f"❌ Error loading {model_path}: {e}")
-                    return np.zeros(len(X_price))
+                    print(f"❌ Load Error for {self.mode}: {e}")
+            else:
+                print(f"⚠️ Missing File: {model_path}. Defaulting to Option A logic.")
+
+        # 4. Fallback: If DL fails or file is missing, use the SVR logic (Option A)
+        # This is why your numbers currently look the same!
+        return self.predict_svr_fallback(X_price)
 
         # 2. Ensure we have a model to use
         if self.model is None:
