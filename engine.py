@@ -7,7 +7,7 @@ import joblib
 import os
 
 # ---------------------------------------------------------------------------
-# DEEP LEARNING ENGINES (I, J, K)
+# DEEP LEARNING ENGINES (Options I, J, K)
 # ---------------------------------------------------------------------------
 
 class DeepHybridEngine:
@@ -18,19 +18,30 @@ class DeepHybridEngine:
         self.is_trained = False
         
     def _build_parallel_model(self, n_price_feats, n_macro_feats):
+        """
+        Architecture for Option K: Parallel-Dual-Stream-CNN-LSTM
+        """
         from tensorflow.keras.models import Model
-        from tensorflow.keras.layers import Input, Conv1D, LSTM, Dense, Concatenate, Dropout
+        from tensorflow.keras.layers import Input, Conv1D, LSTM, Dense, Concatenate, Dropout, Attention
         
-        # Branch 1: Price/Technical Sequence (3D)
+        # Branch 1: Price/Technical Sequence (3D Tensor)
         price_in = Input(shape=(self.lookback, n_price_feats), name='price_input')
-        x = Conv1D(filters=32, kernel_size=3, activation='relu')(price_in)
-        x = LSTM(64, return_sequences=False)(x)
-        x = Dropout(0.2)(x)
-
-        # Branch 2: Macro/Regime Context (2D)
+        x = Conv1D(filters=32, kernel_size=3, activation='relu', padding='same')(price_in)
+        
+        # Branch 2: Macro/Regime Context (2D Vector)
         macro_in = Input(shape=(n_macro_feats,), name='macro_input')
         y = Dense(16, activation='relu')(macro_in)
         y = Dense(8, activation='relu')(y)
+
+        # Sequence Processing
+        x = LSTM(64, return_sequences=True if "Option J" in self.mode else False)(x)
+        
+        # If Option J, add Attention Mechanism
+        if "Option J" in self.mode:
+            query_value_attention_seq = Attention()([x, x])
+            x = LSTM(32)(query_value_attention_seq)
+            
+        x = Dropout(0.2)(x)
 
         # Fusion Layer
         merged = Concatenate()([x, y])
@@ -45,7 +56,7 @@ class DeepHybridEngine:
         from tensorflow.keras.models import Model
         from tensorflow.keras.layers import Input, Conv1D, LSTM, Dense
         try:
-            if self.mode == "Option K":
+            if "Option K" in self.mode:
                 self.model = self._build_parallel_model(X_price.shape[2], X_macro.shape[1])
                 self.model.fit([X_price, X_macro], y, epochs=10, batch_size=32, verbose=0)
             else:
@@ -64,7 +75,6 @@ class DeepHybridEngine:
             return False
 
     def predict_series(self, X_price, X_macro=None):
-        import os
         import numpy as np
         from tensorflow.keras.models import load_model
         
@@ -74,49 +84,37 @@ class DeepHybridEngine:
             "Option K": "opt_k_hybrid.h5"
         }
         
-        if self.mode in file_map:
-            model_file = file_map[self.mode]
-            
-            # Path Resolution for Hugging Face LFS
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            possible_paths = [
-                os.path.join(base_dir, "models", model_file),
-                os.path.join(base_dir, model_file),
-                os.path.join("/app", "models", model_file),
-                os.path.join("/app", model_file)
-            ]
-            
-            model_path = None
-            for p in possible_paths:
-                if os.path.exists(p) and os.path.getsize(p) > 2048:
-                    model_path = p
-                    break
-            
-            if model_path:
-                try:
-                    from tensorflow.keras import backend as K
-                    K.clear_session()
-                    
-                    current_model = load_model(model_path, compile=False)
-                    
-                    # Parallel Stream handling for Option K
-                    if self.mode == "Option K" and X_macro is not None:
-                        preds = current_model.predict([X_price, X_macro], verbose=0).flatten()
-                    else:
-                        preds = current_model.predict(X_price, verbose=0).flatten()
-                    return preds
-                except Exception as e:
-                    print(f"❌ Load Error for {self.mode}: {e}")
-            else:
-                print(f"⚠️ {self.mode}: Model file missing or LFS pointer detected.")
-
+        # Extract the key to match the file map
+        key = "Option I" if "Option I" in self.mode else "Option J" if "Option J" in self.mode else "Option K"
+        model_file = file_map.get(key)
+        
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        possible_paths = [
+            os.path.join(base_dir, "models", model_file),
+            os.path.join(base_dir, model_file),
+            os.path.join("/app", "models", model_file)
+        ]
+        
+        model_path = next((p for p in possible_paths if os.path.exists(p) and os.path.getsize(p) > 2048), None)
+        
+        if model_path:
+            try:
+                from tensorflow.keras import backend as K
+                K.clear_session()
+                current_model = load_model(model_path, compile=False)
+                
+                if "Option K" in self.mode and X_macro is not None:
+                    preds = current_model.predict([X_price, X_macro], verbose=0).flatten()
+                else:
+                    preds = current_model.predict(X_price, verbose=0).flatten()
+                return preds
+            except Exception as e:
+                print(f"❌ Load Error for {self.mode}: {e}")
+        
         return np.zeros(len(X_price))
 
-    def save(self, filepath):
-        if self.model: self.model.save(filepath)
-
 # ---------------------------------------------------------------------------
-# MOMENTUM ENGINE (SVR)
+# SVR MOMENTUM ENGINE (Options A, B, D, G, H)
 # ---------------------------------------------------------------------------
 class MomentumEngine:
     def __init__(self, c_param: float = 700.0, degree: int = 3):
@@ -134,7 +132,7 @@ class MomentumEngine:
             self.model.fit(X, y)
             self.is_trained = True
             return True
-        except Exception as e:
+        except:
             return False
 
     def predict_series(self, X: np.ndarray) -> np.ndarray:
@@ -147,7 +145,7 @@ class MomentumEngine:
         return True
 
 # ---------------------------------------------------------------------------
-# A2C ENGINE (Reinforcement Learning)
+# RL A2C ENGINE (Options C, D)
 # ---------------------------------------------------------------------------
 class A2CEngine:
     def __init__(self, learning_rate=0.01):
@@ -159,6 +157,8 @@ class A2CEngine:
         labels = y.values if hasattr(y, 'values') else y
         if self.weights is None:
             self.weights = np.random.normal(0, 0.1, features.shape[1])
+        
+        # Simple policy gradient approximation for A2C state-action value
         gradient = np.dot(features.T, labels)
         self.weights += self.lr * gradient
 
@@ -167,21 +167,3 @@ class A2CEngine:
         if self.weights is None:
             self.weights = np.random.normal(0, 0.1, features.shape[1])
         return np.dot(features, self.weights)
-
-# ---------------------------------------------------------------------------
-# PRODUCTION UTILITY
-# ---------------------------------------------------------------------------
-def update_model_checkpoint(
-    raw_df: pd.DataFrame,
-    target_col: str = "GLD",
-    save_path: str = "models/svr_momentum_poly.pkl"
-) -> "MomentumEngine | None":
-    from data.processor import build_feature_matrix as build_features
-    X, y, _, _ = build_features(raw_df, target_col=target_col)
-    engine = MomentumEngine()
-    success = engine.train(X, y)
-    if success:
-        engine.save(save_path)
-        return engine
-    print("Model training failed — returning None.")
-    return None
