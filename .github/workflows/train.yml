@@ -1,8 +1,11 @@
 name: Cloud Model Trainer
 
 on:
+  # 1. Automatic Daily Schedule at 11:00 PM UTC
   schedule:
-    - cron: '0 23 * * *' # 11:00 PM UTC
+    - cron: '0 23 * * *'
+    
+  # 2. Trigger on code changes to any project file
   push:
     branches:
       - main
@@ -15,6 +18,8 @@ on:
       - 'data/**'        # Everything in data folder
       - 'analytics/**'   # Includes regime.py and others
       - 'models/**'      # Includes your .h5 and .pkl files
+      
+  # 3. Allows you to still click "Run workflow" manually
   workflow_dispatch: 
 
 jobs:
@@ -33,19 +38,11 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # 1. Start with a clean pip
+          # Clean pip and force NumPy 1.x to avoid the "Undefined Symbol" crash
           pip install --upgrade pip
-          
-          # 2. FORCE UNINSTALL any existing NumPy to prevent version conflicts
           pip uninstall -y numpy
-          
-          # 3. Install the specific compatible version FIRST
           pip install "numpy<2.0"
-          
-          # 4. Install your training requirements
           pip install -r requirements_train.txt
-          
-          # 5. Verification check (This will show in your logs)
           python -c "import numpy; print(f'VERIFIED NUMPY VERSION: {numpy.__version__}')"
 
       - name: Run Trainer
@@ -54,17 +51,25 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python train_models.py
 
-      - name: Global Sync to Hugging Face
+      - name: Sync Everything to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git config --global user.email "bot@github.com"
-          git config --global user.name "GitHub Action"
+          # Use the Python API to bypass Git's 10MB binary file restrictions
+          python -c "
+          from huggingface_hub import HfApi
+          import os
+          api = HfApi()
+          print('🚀 Starting full sync to Hugging Face...')
           
-          # Force add ALL potential changes (models, regime files, etc.)
-          git add -A
-          git commit -m "Complete Project Sync: Models + Analytics [skip ci]" || echo "No changes to commit"
-          
-          # Force push the entire directory structure to HF Space
-          git remote add hf https://P2SAMAPA:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO
-          git push --force hf main
+          # This uploads the entire directory (app.py, engine.py, models/, etc.)
+          # It automatically handles large .h5 and .pkl files correctly via API
+          api.upload_folder(
+              folder_path='.',
+              repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
+              repo_type='space',
+              token=os.environ['HF_TOKEN'],
+              ignore_patterns=['.git*', '.github*']
+          )
+          print('✅ Sync Complete! Your Space is now restarting with new models and code.')
+          "
