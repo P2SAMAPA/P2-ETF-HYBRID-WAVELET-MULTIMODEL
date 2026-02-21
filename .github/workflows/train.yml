@@ -33,9 +33,20 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          # 1. Start with a clean pip
           pip install --upgrade pip
+          
+          # 2. FORCE UNINSTALL any existing NumPy to prevent version conflicts
+          pip uninstall -y numpy
+          
+          # 3. Install the specific compatible version FIRST
+          pip install "numpy<2.0"
+          
+          # 4. Install your training requirements
           pip install -r requirements_train.txt
-          pip install huggingface_hub yfinance fredapi pywavelets tensorflow
+          
+          # 5. Verification check (This will show in your logs)
+          python -c "import numpy; print(f'VERIFIED NUMPY VERSION: {numpy.__version__}')"
 
       - name: Run Trainer
         env:
