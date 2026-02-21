@@ -42,13 +42,14 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     from data.processor import build_feature_matrix
     from analytics.regime import RegimeHMM, BayesianFilter
     
-    all_preds = {}
+    # --- HARD RESET TO PREVENT GHOSTING ---
+    all_preds = {} 
     is_mask_global = raw_df.index.year < start_yr
     oos_mask_global = raw_df.index.year >= start_yr
 
     # --- REGIME ENGINE INITIALIZATION ---
     hmm_signals = {}
-    if "HMM" in model_choice:
+    if "HMM" in model_choice or "Option G" in model_choice:
         hmm_engine = RegimeHMM(n_states=3)
         hmm_engine.train_and_assign(raw_df[is_mask_global], assets)
         macro_cols = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
@@ -59,9 +60,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     bsts_filter = BayesianFilter() if "BSTS" in model_choice else None
 
     # --- PREDICTION ENGINE ROUTING (RECTIFIED) ---
-    # We clear any previous predictions to prevent "Ghosting" from Option G
-    all_preds = {} 
-
+    # Only calculate predictions if NOT using pure regime models (E or G)
     if not (model_choice.startswith("Option E") or model_choice.startswith("Option G")):
         for ticker in assets:
             try:
@@ -82,7 +81,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
                         macro_cols = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
                         X_macro = raw_df[macro_cols].loc[idx[oos_mask]].values
                     
-                    # This calls the load_model logic in engine.py
                     preds = engine.predict_series(X[oos_mask], X_macro=X_macro)
                 
                 elif "Option C" in model_choice:
@@ -100,6 +98,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
             except Exception as e:
                 continue
 
+    # Ensure pred_df is only built from the current session's all_preds
     pred_df = pd.DataFrame(all_preds).dropna() if all_preds else pd.DataFrame()
 
     # --- DYNAMIC THRESHOLD LOGIC ---
@@ -120,11 +119,11 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
         if model_choice.startswith("Option E") or model_choice.startswith("Option G"):
             signal_asset = hmm_signals.get(date, "CASH")
         elif model_choice.startswith("Option F"):
-            daily_preds = pred_df.loc[date] if date in pred_df.index else None
+            daily_preds = pred_df.loc[date] if (not pred_df.empty and date in pred_df.index) else None
             hmm_gate = hmm_signals.get(date, "CASH")
             signal_asset = daily_preds.idxmax() if (daily_preds is not None and daily_preds.max() > threshold and hmm_gate != "CASH") else "CASH"
         elif model_choice.startswith("Option H"):
-            daily_preds = pred_df.loc[date] if date in pred_df.index else None
+            daily_preds = pred_df.loc[date] if (not pred_df.empty and date in pred_df.index) else None
             if daily_preds is not None and daily_preds.max() > threshold:
                 conf = bsts_filter.get_confidence(raw_df.loc[:date, daily_preds.idxmax()])
                 signal_asset = daily_preds.idxmax() if conf > 0.65 else "CASH"
@@ -172,7 +171,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
     for b in ["SPY", "AGG"]: res[b] = (raw_df.loc[oos_idx, f"{b}_Ret"].add(1).cumprod() * 100)
 
     # Confidence calculation
-    confidence_val = 0.50 # Default baseline
+    confidence_val = 0.50 
     if not pred_df.empty:
         last_preds = pred_df.iloc[-1]
         z_score = (last_preds.max() - last_preds.mean()) / last_preds.std() if last_preds.std() > 0 else 0
