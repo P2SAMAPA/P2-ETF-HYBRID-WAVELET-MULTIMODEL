@@ -29,7 +29,7 @@ def get_next_trading_day_simple():
 
 @st.cache_data(ttl=3600)
 def run_professional_backtest(start_yr, model_choice, t_costs_bps, _force_sync=False):
-    # Triggers the FeatureLoader.sync_data() if _force_sync is True
+    # Pass force_sync into loader logic
     raw_df = load_raw_data(force_sync=_force_sync)
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
     t_cost_pct = t_costs_bps / 10_000
@@ -41,17 +41,19 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, _force_sync=F
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             m_oos, m_is = idx.year >= start_yr, idx.year < start_yr
             
+            # Logic mapping for Deep Engines
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 eng = DeepHybridEngine(mode=model_choice)
                 X_vals = X
                 oos_indices = np.where(m_oos)[0]
-                # Reshape for Deep Engines (3D Tensors)
                 X_3d = np.array([np.vstack([np.repeat(X_vals[0:1], 20-len(X_vals[max(0, i-19):i+1]), axis=0), X_vals[max(0, i-19):i+1]]) for i in oos_indices])
                 X_macro = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].values if "Option K" in model_choice else None
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
-            elif "Option C" in model_choice or "Option D: Wavelet-SVR-A2C" in model_choice:
+            # Logic mapping for RL Engines
+            elif "Option C" in model_choice or "Option D" in model_choice:
                 eng = A2CEngine(); eng.train(X[m_is], y[m_is])
                 preds = eng.predict_series(X[m_oos])
+            # Logic mapping for SVR/Momentum Engines
             else:
                 eng = MomentumEngine(); eng.train(X[m_is], y[m_is])
                 preds = eng.predict_series(X[m_oos])
@@ -96,7 +98,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, _force_sync=F
     return {"df": res, "audit": pd.DataFrame({"Allocation": hist, "Return": rets}, index=common_idx), 
             "target": hist[-1], "conf": confs[-1], "date": common_idx[-1].strftime('%Y-%m-%d')}
 
-# --- SIDEBAR & REFRESH ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("Terminal Config")
     do_sync = False
@@ -104,14 +106,16 @@ with st.sidebar:
         st.cache_data.clear()
         do_sync = True
         st.session_state['refreshed_at'] = datetime.now().strftime('%d/%m/%y %H:%M')
+        st.rerun()
     
     refreshed_text = st.session_state.get('refreshed_at', datetime.now().strftime('%d/%m/%y'))
     st.caption(f"Refreshed on {refreshed_text}")
     
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
+    # Fixed duplicate Option D issue
     opt = st.radio("Intelligence Engine", [
         "Option A- Wavelet-SVR", "Option B-Wavelet-SVR-PPO", "Option C: Wavelet-A2C", 
-        "Option D: Wavelet-SVR-A2C", "Option D: Wavelet- HMM", "Option E: Wavelet-Bayesian-Regime", 
+        "Option D: Wavelet-SVR-A2C", "Option E: Wavelet-Bayesian-Regime", "Option F: Wavelet-HMM", 
         "Option G- Wavelet-SVR-HMM", "Option H: Wavelet-SVR-Bayesian", "Option I: Wavelet- CNN-LSTM", 
         "Option J: Wavelet-Attention-CNN-LSTM", "Option K- Wavelet- Parallel-Dual-Stream-CNN-LSTM"
     ])
@@ -150,7 +154,6 @@ m4.metric("Max DD (Daily)", f"{max_daily_dd:.2%}")
 m5.metric("Hit Ratio (15D)", f"{hit_ratio:.0%}")
 m6.metric("1/2 Kelly Factor", f"{min(kelly, 0.5):.1%}" if out['target'] != "CASH" else "0.0%")
 
-# NEW: Specific Daily DD Event Box
 st.markdown(f"<div style='background-color: #fff5f5; padding: 10px; border-radius: 5px; border: 1px solid #feb2b2; margin-bottom: 20px; font-size: 13px; color: #c53030;'><b>Worst Daily Event:</b> {max_daily_dd:.2%} drawdown occurred on <b>{max_daily_date}</b>. Peak-to-Trough Max DD reached on <b>{max_dd_pt_date}</b>.</div>", unsafe_allow_html=True)
 
 # --- UI: CHARTS ---
@@ -169,16 +172,17 @@ audit_df.index = audit_df.index.strftime('%Y-%m-%d')
 st.dataframe(audit_df.style.format({'Return': '{:.2%}'}), use_container_width=True)
 
 methodologies = {
-    "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR. The wavelet transform decomposes price action into frequency components, allowing the SVR to ignore short-term noise and capture mid-term momentum shifts.",
-    "Option B": "A hybrid Reinforcement Learning-Supervised model. The SVR provides a directional bias, while a Proximal Policy Optimization (PPO) agent identifies high-probability entry windows using an adaptive volatility threshold.",
-    "Option C": "Advantage Actor-Critic (A2C) engine that optimizes allocation as a continuous policy problem. The 'Actor' determines the asset weight while the 'Critic' evaluates the expected risk-adjusted reward based on wavelet coefficients.",
-    "Option D": "SVR-A2C Ensemble or Hidden Markov Model (HMM). Depending on the sub-selection, this model either uses HMMs to detect latent market regimes or weights SVR predictions by an RL agent's conviction score.",
-    "Option E": "Bayesian state-space filtering for regime detection. This approach calculates the posterior probability of entering a high-volatility regime, forcing defensive postures before standard indicators turn bearish.",
-    "Option G": "HMM-Biased SVR. A Hidden Markov Model classifies the current market state (Bull/Bear/Sideways), which dynamically adjusts the 'C' parameter of the SVR to prevent over-trading in flat markets.",
-    "Option H": "Bayesian-Denoised SVR. Applies a Bayesian shrinkage prior to wavelet coefficients before they enter the SVR, effectively reducing the impact of outliers and flash-volatility events on signals.",
-    "Option I": "Deep Learning temporal feature processing. A 1D Convolutional Neural Network (CNN) extracts spatial price features which are then sequenced by a Long Short-Term Memory (LSTM) network for future-return prediction.",
-    "Option J": "Attention-Augmented CNN-LSTM. Utilizes a Self-Attention mechanism to dynamically weight the importance of different wavelet frequency bands, allowing the model to 'focus' on the most relevant market drivers in real-time.",
-    "Option K": "Parallel Dual-Stream Deep Fusion. Processes price-series data and macro-economic vectors (VIX, Spreads, DXY) in separate neural streams before fusing them at the dense layer for a multi-contextual prediction."
+    "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR. Wavelet transform captures mid-term momentum shifts.",
+    "Option B": "Hybrid RL-Supervised model using PPO for high-probability entry windows.",
+    "Option C": "Advantage Actor-Critic (A2C) optimizing allocation as a continuous policy.",
+    "Option D": "SVR-A2C Ensemble weighting predictions by agent conviction scores.",
+    "Option E": "Bayesian state-space filtering for defensive regime detection.",
+    "Option F": "Hidden Markov Model (HMM) for latent regime classification.",
+    "Option G": "HMM-Biased SVR that adjusts 'C' parameters based on market state.",
+    "Option H": "Bayesian-Denoised SVR applying shrinkage priors to wavelet coefficients.",
+    "Option I": "CNN-LSTM Deep Learning for spatial and temporal feature extraction.",
+    "Option J": "Attention-Augmented CNN-LSTM focusing on relevant frequency bands.",
+    "Option K": "Parallel Dual-Stream Deep Fusion incorporating macro-economic vectors."
 }
 method_key = opt.split("-")[0].strip() if "-" in opt else opt.split(":")[0].strip()
 st.divider()
