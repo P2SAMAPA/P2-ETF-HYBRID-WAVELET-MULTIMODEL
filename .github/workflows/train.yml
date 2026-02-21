@@ -1,18 +1,13 @@
 name: Cloud Model Trainer
 
 on:
-  # 1. Automatic Daily Schedule at 11:00 PM UTC
   schedule:
     - cron: '0 23 * * *'
-    
-  # 2. Trigger on EVERY change in the repository
   push:
     branches:
       - main
     paths:
-      - '**'  # Matches every file in every directory
-
-  # 3. Manual trigger button
+      - '**' # Triggers on EVERY change in the repo
   workflow_dispatch: 
 
 jobs:
@@ -35,6 +30,7 @@ jobs:
           pip uninstall -y numpy
           pip install "numpy<2.0"
           pip install -r requirements_train.txt
+          # Verify version to ensure no "Undefined Symbol" crash
           python -c "import numpy; print(f'VERIFIED NUMPY VERSION: {numpy.__version__}')"
 
       - name: Run Trainer
@@ -47,12 +43,15 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          # This Python script uses the official HF API to bypass Git's 10MB limit
           python -c "
           from huggingface_hub import HfApi
           import os
           api = HfApi()
-          print('🚀 Starting full sync to Hugging Face...')
+          print('🚀 Starting total sync to Hugging Face...')
           
+          # Uploads EVERYTHING (app.py, engine.py, models, analytics)
+          # API method handles .h5 and .pkl files correctly
           api.upload_folder(
               folder_path='.',
               repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
@@ -60,5 +59,5 @@ jobs:
               token=os.environ['HF_TOKEN'],
               ignore_patterns=['.git*', '.github*']
           )
-          print('✅ Sync Complete!')
+          print('✅ Sync Complete! Space is restarting.')
           "
