@@ -5,21 +5,14 @@ on:
   schedule:
     - cron: '0 23 * * *'
     
-  # 2. Trigger on code changes to any project file
+  # 2. Trigger on EVERY change in the repository
   push:
     branches:
       - main
     paths:
-      - 'app.py'
-      - 'engine.py'
-      - 'train_models.py'
-      - 'requirements.txt'
-      - 'requirements_train.txt'
-      - 'data/**'        # Everything in data folder
-      - 'analytics/**'   # Includes regime.py and others
-      - 'models/**'      # Includes your .h5 and .pkl files
-      
-  # 3. Allows you to still click "Run workflow" manually
+      - '**'  # Matches every file in every directory
+
+  # 3. Manual trigger button
   workflow_dispatch: 
 
 jobs:
@@ -38,7 +31,6 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # Clean pip and force NumPy 1.x to avoid the "Undefined Symbol" crash
           pip install --upgrade pip
           pip uninstall -y numpy
           pip install "numpy<2.0"
@@ -55,15 +47,12 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # Use the Python API to bypass Git's 10MB binary file restrictions
           python -c "
           from huggingface_hub import HfApi
           import os
           api = HfApi()
           print('🚀 Starting full sync to Hugging Face...')
           
-          # This uploads the entire directory (app.py, engine.py, models/, etc.)
-          # It automatically handles large .h5 and .pkl files correctly via API
           api.upload_folder(
               folder_path='.',
               repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
@@ -71,5 +60,5 @@ jobs:
               token=os.environ['HF_TOKEN'],
               ignore_patterns=['.git*', '.github*']
           )
-          print('✅ Sync Complete! Your Space is now restarting with new models and code.')
+          print('✅ Sync Complete!')
           "
