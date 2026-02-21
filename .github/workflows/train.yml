@@ -27,7 +27,7 @@ jobs:
       - name: Train Deep Learning Models
         run: python train_models.py
 
-      - name: Upload Models via API (Bypass Git Errors)
+      - name: Upload Models via API (Bypassing Git Binary Error)
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
@@ -36,8 +36,8 @@ jobs:
           import os
           api = HfApi()
           
-          # This command skips Git and sends files directly to HF storage.
-          # It ignores your commit history and fixes the 'binary rejection' error.
+          # This direct API upload does NOT use 'git push'
+          # It bypasses the 'binary files' rejection error entirely
           api.upload_folder(
               folder_path='models',
               repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
