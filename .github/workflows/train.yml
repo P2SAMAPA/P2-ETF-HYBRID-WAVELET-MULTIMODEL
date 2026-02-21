@@ -4,16 +4,18 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch: # This allows you to run it MANUALLY from the Actions tab
+    paths:
+      - 'train_models.py'
+      - 'engine.py'
+      - 'data/**'
+  workflow_dispatch: 
 
 jobs:
   build-and-train:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (Latest Only)
+      - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -24,12 +26,17 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements_train.txt
-          pip install huggingface_hub
+          pip install huggingface_hub yfinance fredapi pywavelets
 
-      - name: Train Deep Learning Models
+      - name: Run Trainer
+        env:
+          # This maps your GitHub Secrets to the environment variables
+          # Your loader.py will use these because st.secrets will fail
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python train_models.py
 
-      - name: Direct API Upload
+      - name: Upload to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
@@ -37,7 +44,6 @@ jobs:
           from huggingface_hub import HfApi
           import os
           api = HfApi()
-          # Ensures generated .h5 and .pkl files land in the correct 'models' subfolder
           if os.path.exists('models'):
               api.upload_folder(
                   folder_path='models',
@@ -47,4 +53,3 @@ jobs:
                   token=os.environ['HF_TOKEN']
               )
           "
-          echo "✅ Models uploaded to /models subfolder via API."
