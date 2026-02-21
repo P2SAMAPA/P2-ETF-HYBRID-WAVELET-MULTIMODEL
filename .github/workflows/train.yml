@@ -2,18 +2,19 @@ name: Cloud Model Trainer
 
 on:
   schedule:
-    - cron: '0 23 * * *' # Daily at 11:00 PM UTC
-    
+    - cron: '0 23 * * *' # 11:00 PM UTC
   push:
     branches:
       - main
     paths:
-      - 'app.py'            # Monitored in root
-      - 'engine.py'         # Monitored in root
+      - 'app.py'
+      - 'engine.py'
       - 'train_models.py'
       - 'requirements.txt'
-      - 'data/**'
-      
+      - 'requirements_train.txt'
+      - 'data/**'        # Everything in data folder
+      - 'analytics/**'   # Includes regime.py and others
+      - 'models/**'      # Includes your .h5 and .pkl files
   workflow_dispatch: 
 
 jobs:
@@ -42,19 +43,17 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python train_models.py
 
-      - name: Sync Root Files and Models to HF
+      - name: Global Sync to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           git config --global user.email "bot@github.com"
           git config --global user.name "GitHub Action"
           
-          # Force add the h5 files even if in .gitignore
-          git add -f models/*.h5 models/*.pkl || true
+          # Force add ALL potential changes (models, regime files, etc.)
+          git add -A
+          git commit -m "Complete Project Sync: Models + Analytics [skip ci]" || echo "No changes to commit"
           
-          # Commit the changes (models + any code updates)
-          git commit -m "Automated Sync: Models and Code [skip ci]" || echo "No changes to sync"
-          
-          # Push the entire root directory to HF Space
-          git remote add space https://P2SAMAPA:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO
-          git push --force space main
+          # Force push the entire directory structure to HF Space
+          git remote add hf https://P2SAMAPA:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO
+          git push --force hf main
