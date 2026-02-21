@@ -13,7 +13,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fixed hyphen syntax to resolve your specific error
+          fetch-depth: 0 # Corrected hyphen syntax
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -29,18 +29,15 @@ jobs:
       - name: Train Deep Learning Models
         run: python train_models.py
 
-      - name: Untrack Binaries and Upload via API
+      - name: Direct API Upload
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # 1. This stops Git from even looking at the models during sync
-          git rm -r --cached models/*.h5 || echo "Files already untracked"
-          
-          # 2. This delivers the models via API, bypassing the Git binary block
           python -c "
           from huggingface_hub import HfApi
           import os
           api = HfApi()
+          # This 'teleports' the files to your Space, bypassing the Git wall
           api.upload_folder(
               folder_path='models',
               repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
@@ -48,4 +45,4 @@ jobs:
               token=os.environ['HF_TOKEN']
           )
           "
-          print('✅ API Upload successful. Hyphen error and Binary error resolved.')
+          echo "✅ Models uploaded via API. Git 'Sync-to-Hub' error bypassed."
