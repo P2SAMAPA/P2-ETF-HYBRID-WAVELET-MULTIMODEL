@@ -13,7 +13,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fixed hyphen syntax to resolve the error
+          fetch-depth: 0 # Fixed hyphen syntax to resolve your specific error
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -29,15 +29,14 @@ jobs:
       - name: Train Deep Learning Models
         run: python train_models.py
 
-      - name: Clean Git Tracking and Upload via API
+      - name: Untrack Binaries and Upload via API
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # 1. Stop Git from tracking these binaries (the cause of the rejection)
-          # This allows the background 'sync-to-hub' to pass by making it ignore the .h5 files
+          # 1. This stops Git from even looking at the models during sync
           git rm -r --cached models/*.h5 || echo "Files already untracked"
           
-          # 2. Upload via API (Bypasses the Git binary wall entirely)
+          # 2. This delivers the models via API, bypassing the Git binary block
           python -c "
           from huggingface_hub import HfApi
           import os
@@ -49,4 +48,4 @@ jobs:
               token=os.environ['HF_TOKEN']
           )
           "
-          print('✅ API Upload successful. The background sync will now ignore binaries.')
+          print('✅ API Upload successful. Hyphen error and Binary error resolved.')
