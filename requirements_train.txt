@@ -1,22 +1,25 @@
-# UI & Framework (Required because data/ files import them)
+# UI & Framework
 streamlit
 plotly
 
 # Data Fetching & APIs
 yfinance
 pandas_datareader
+fredapi
 huggingface_hub
 requests
 
-# Signal Processing
+# Signal & Regime Processing
 PyWavelets
 statsmodels
+scipy
+hmmlearn
 
-# Core Data & ML
+# Core Data & ML (Added joblib explicitly)
 pandas
 numpy==1.24.3
 scikit-learn
 joblib
 
-# Deep Learning (Options I, J, K)
+# Deep Learning
 tensorflow-cpu==2.15.0
