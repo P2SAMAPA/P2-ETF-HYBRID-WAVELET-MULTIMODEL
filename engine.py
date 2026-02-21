@@ -73,12 +73,27 @@ class DeepHybridEngine:
         
         if self.mode in file_map:
             model_file = file_map[self.mode]
-            # RECTIFIED PATHING: Ensure absolute path to 'models' folder
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            model_path = os.path.join(base_dir, "models", model_file)
             
-            if os.path.exists(model_path):
+            # RECTIFIED PATHING LOGIC
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            # Try Path 1: Inside 'models' folder
+            path1 = os.path.join(base_dir, "models", model_file)
+            # Try Path 2: Root directory (fallback for certain cloud environments)
+            path2 = os.path.join(base_dir, model_file)
+            
+            model_path = None
+            if os.path.exists(path1):
+                model_path = path1
+            elif os.path.exists(path2):
+                model_path = path2
+            
+            if model_path:
                 try:
+                    # Clear session to prevent memory bloat in Streamlit
+                    from tensorflow.keras import backend as K
+                    K.clear_session()
+                    
                     current_model = load_model(model_path, compile=False)
                     if self.mode == "Option K" and X_macro is not None:
                         preds = current_model.predict([X_price, X_macro], verbose=0).flatten()
@@ -88,10 +103,10 @@ class DeepHybridEngine:
                 except Exception as e:
                     print(f"❌ Load Error for {self.mode}: {e}")
             else:
-                print(f"⚠️ Missing File: {model_path}")
+                # Debugging print to see where it looked
+                print(f"⚠️ Missing File. Looked in: {path1} and {path2}")
 
         return np.zeros(len(X_price))
-
     def save(self, filepath):
         if self.model: self.model.save(filepath)
 
