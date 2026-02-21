@@ -37,12 +37,13 @@ jobs:
           from huggingface_hub import HfApi
           import os
           api = HfApi()
-          # Direct API injection bypasses the Git 'Sync' wall
+          # The fix: path_in_repo='models' ensures files land in the subfolder
           api.upload_folder(
               folder_path='models',
+              path_in_repo='models',
               repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
               repo_type='space',
               token=os.environ['HF_TOKEN']
           )
           "
-          echo "✅ Models uploaded via API. Sync errors ignored."
+          echo "✅ Models uploaded to /models subfolder via API."
