@@ -10,10 +10,10 @@ jobs:
   build-and-train:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout Repository (Latest Only)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 
+          fetch-depth: 1 # This ignores the "poisoned" history
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -29,7 +29,7 @@ jobs:
       - name: Train Deep Learning Models
         run: python train_models.py
 
-      - name: Upload via API
+      - name: Direct API Injection
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
@@ -37,7 +37,9 @@ jobs:
           from huggingface_hub import HfApi
           import os
           api = HfApi()
-          # Direct API upload bypasses the Git 'binary rejection' wall
+          
+          # This command injects files directly into the Space.
+          # It bypasses the 'binary rejection' error because it does NOT use Git Push.
           api.upload_folder(
               folder_path='models',
               repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
@@ -45,4 +47,4 @@ jobs:
               token=os.environ['HF_TOKEN']
           )
           "
-          echo "✅ Models uploaded via API. Old sync error bypassed."
+          echo "✅ Files successfully uploaded via API. Git history was bypassed."
