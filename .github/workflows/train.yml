@@ -1,6 +1,11 @@
 name: Cloud Model Trainer
 
 on:
+  # 1. Automatic Daily Schedule at 11:00 PM UTC
+  schedule:
+    - cron: '0 23 * * *'
+    
+  # 2. Trigger on code changes
   push:
     branches:
       - main
@@ -8,6 +13,8 @@ on:
       - 'train_models.py'
       - 'engine.py'
       - 'data/**'
+      
+  # 3. Allows you to still click "Run workflow" manually
   workflow_dispatch: 
 
 jobs:
@@ -26,12 +33,10 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements_train.txt
-          pip install huggingface_hub yfinance fredapi pywavelets
+          pip install huggingface_hub yfinance fredapi pywavelets tensorflow
 
       - name: Run Trainer
         env:
-          # This maps your GitHub Secrets to the environment variables
-          # Your loader.py will use these because st.secrets will fail
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python train_models.py
