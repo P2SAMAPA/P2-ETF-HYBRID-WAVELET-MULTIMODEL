@@ -10,7 +10,7 @@ def automate_training():
     df = load_raw_data()
     lookback = 20
     
-    # Target column - update to whatever your dashboard is focusing on (e.g., 'SLV' or 'GLD')
+    # Target column
     target = "SLV"
     X, y, _, _ = build_feature_matrix(df, target_col=target)
     
@@ -35,25 +35,29 @@ def automate_training():
         engine_i.save("models/opt_i_cnn.h5")
 
     print("✅ Training Complete. Files generated in /models.")
-    # --- DIRECT API INJECTION ---
-    from huggingface_hub import HfApi
-    import os
 
+    # --- DIRECT API INJECTION ---
+    # This must be indented to stay inside the automate_training function
+    from huggingface_hub import HfApi
+    
     api = HfApi()
     token = os.getenv("HF_TOKEN")
-
+    
     if token:
-    print("🚀 Teleporting models to Hugging Face...")
-    api.upload_folder(
-        folder_path="models",
-        repo_id="P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO",
-        repo_type="space",
-        path_in_repo="models",  # This puts files inside the /models folder
-        token=token
-    )
-    print("✅ Injection complete!")
+        print("🚀 Teleporting models to Hugging Face...")
+        try:
+            api.upload_folder(
+                folder_path="models",
+                repo_id="P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO",
+                repo_type="space",
+                path_in_repo="models",
+                token=token
+            )
+            print("✅ Injection complete!")
+        except Exception as e:
+            print(f"❌ Upload failed: {e}")
     else:
-    print("❌ HF_TOKEN missing. Skipping upload.")
+        print("⚠️ HF_TOKEN missing. Skipping upload.")
 
 if __name__ == "__main__":
     automate_training()
