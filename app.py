@@ -59,17 +59,36 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
                 is_mask = idx.year < start_yr
                 oos_mask = idx.year >= start_yr
                 
+                # RECTIFICATION START: Handle 3D Input for Deep Learning
                 if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                     active_mode = "Option K" if "Option K" in model_choice else \
                                   "Option J" if "Option J" in model_choice else "Option I"
                     
                     engine = DeepHybridEngine(mode=active_mode)
+                    
+                    # Convert 2D feature matrix to 3D sliding window for LSTM/CNN
+                    lookback = 20
+                    full_X_values = X.values if hasattr(X, 'values') else X
+                    oos_indices = np.where(oos_mask)[0]
+                    
+                    X_3d_list = []
+                    for i in oos_indices:
+                        window = full_X_values[max(0, i-lookback+1):i+1]
+                        if len(window) < lookback:
+                            # Padding if history is insufficient
+                            pad_size = lookback - len(window)
+                            window = np.vstack([np.repeat(window[0:1], pad_size, axis=0), window])
+                        X_3d_list.append(window)
+                    
+                    X_3d = np.array(X_3d_list)
+                    
                     X_macro = None
                     if active_mode == "Option K":
                         macro_cols = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
                         X_macro = raw_df[macro_cols].loc[idx[oos_mask]].values
                     
-                    preds = engine.predict_series(X[oos_mask], X_macro=X_macro)
+                    preds = engine.predict_series(X_3d, X_macro=X_macro)
+                # RECTIFICATION END
                 
                 elif "Option C" in model_choice:
                     engine = A2CEngine()
