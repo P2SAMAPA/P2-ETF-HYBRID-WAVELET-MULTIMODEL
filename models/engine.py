@@ -14,10 +14,6 @@ class DeepHybridEngine:
     def __init__(self, mode="Option K", lookback=20):
         """
         Deep Learning Engine for Spatial-Temporal Feature Extraction.
-        Modes: 
-        - Option I: Wavelet-CNN-LSTM (Single Stream)
-        - Option J: SVR-CNN-LSTM (Residual Modeling)
-        - Option K: Parallel-Dual-Stream (Price + Macro/Credit Gates)
         """
         self.mode = mode
         self.lookback = lookback
@@ -26,8 +22,6 @@ class DeepHybridEngine:
         
         # Internal imports to keep the global namespace clean
         import tensorflow as tf
-        from tensorflow.keras.models import Model
-        from tensorflow.keras.layers import Input, Conv1D, LSTM, Dense, Concatenate, Dropout, Flatten
 
     def _build_parallel_model(self, n_price_feats, n_macro_feats):
         """Architecture for Option K: Dual-Input Functional API"""
@@ -77,7 +71,8 @@ class DeepHybridEngine:
             print(f"DL Training Error: {e}")
             return False
 
-def predict_series(self, X_price, X_macro=None):
+    def predict_series(self, X_price, X_macro=None):
+        """Standardized Prediction Logic for Options I, J, K"""
         import streamlit as st
         
         file_map = {
@@ -86,96 +81,45 @@ def predict_series(self, X_price, X_macro=None):
             "Option K": "opt_k_dual.h5"
         }
         
+        # 1. Load Model if needed
         if self.mode in file_map:
             model_path = os.path.join("models", file_map[self.mode])
-
-            if os.path.exists(model_path):
-                if self.model is None:
-                    from tensorflow.keras.models import load_model
-                    # Load model without compiling to save time and memory
+            if os.path.exists(model_path) and self.model is None:
+                from tensorflow.keras.models import load_model
+                try:
                     self.model = load_model(model_path, compile=False)
                     self.is_trained = True
-                
-                # --- CRITICAL: THE 3D RESHAPER ---
-                # Converts (Samples, Features) -> (Samples, Lookback, Features)
-                if len(X_price.shape) == 2:
-                    X_3d = np.array([X_price[i-self.lookback:i] for i in range(self.lookback, len(X_price)+1)])
-                    padding = np.zeros((self.lookback-1, self.lookback, X_price.shape[1]))
-                    X_final = np.vstack([padding, X_3d])
-                else:
-                    X_final = X_price
+                except Exception as e:
+                    print(f"Error loading {model_path}: {e}")
+                    return np.zeros(len(X_price))
 
-                # Route to the correct input stream
-                if self.mode == "Option K":
-                    return self.model.predict([X_final, X_macro], verbose=0).flatten()
-                return self.model.predict(X_final, verbose=0).flatten()
-
-        # 3. Load model if not already in memory
+        # 2. Ensure we have a model to use
         if self.model is None:
-            from tensorflow.keras.models import load_model
-            try:
-                self.model = load_model(model_path, compile=False)
-                self.is_trained = True
-                st.success(f"🧠 {self.model_file} Neural Engine Active")
-            except Exception as e:
-                st.error(f"Error loading {model_file}: {e}")
-                return np.zeros(len(X_price))
+            return np.zeros(len(X_price))
 
-        # Final prediction if mode isn't "Option K"
-        return self.model.predict(X_final, verbose=0).flatten()
-            # 4. Handle 3D Reshaping for CNN/LSTM
-            # If data is 2D (Samples, Features), we must make it 3D (Samples, Lookback, Features)
-            try:
-                if len(X_price.shape) == 2:
-                    # Creating a sliding window of 20 days for the entire series
-                    # This ensures the CNN sees 'patterns' not just 'points'
-                    X_3d = np.array([X_price[i-self.lookback:i] for i in range(self.lookback, len(X_price)+1)])
-                    
-                    # Align lengths by padding the beginning
-                    padding = np.zeros((self.lookback-1, self.lookback, X_price.shape[1]))
-                    X_final = np.vstack([padding, X_3d])
-                else:
-                    X_final = X_price
-
-                # 5. Execute Prediction
-                if self.mode == "Option K":
-                    if X_macro is None: 
-                        st.warning("Option K requires Macro data.")
-                        return np.zeros(len(X_price))
-                    return self.model.predict([X_final, X_macro], verbose=0).flatten()
-                
-                return self.model.predict(X_final, verbose=0).flatten()
-                
-            except Exception as e:
-                st.error(f"Prediction logic failed for {self.mode}: {e}")
-                return np.zeros(len(X_price))
-
-        # DEFAULT: If not I, J, or K, return zeros (or implement your SVR call here)
-        return np.zeros(len(X_price))
-        
         # 3. AUTO-RESHAPE: Ensure input is 3D (Samples, Lookback, Features)
-        # Deep models trained in cloud expect 3D blocks.
-        if len(X_price.shape) == 2:
-            # Reconstruct the temporal blocks for inference
-            try:
+        try:
+            if len(X_price.shape) == 2:
+                # Sliding window conversion
                 X_3d = np.array([X_price[i-self.lookback:i] for i in range(self.lookback, len(X_price)+1)])
                 # Pad start with zeros to maintain series length alignment
                 padding = np.zeros((self.lookback-1, self.lookback, X_price.shape[1]))
                 X_final = np.vstack([padding, X_3d])
-            except:
-                X_final = X_price # Fallback
-        else:
-            X_final = X_price
+            else:
+                X_final = X_price
+        except Exception:
+            X_final = X_price # Fallback
 
-        # 4. Execution based on mode
+        # 4. Execute Prediction based on mode
         try:
             if self.mode == "Option K":
-                if X_macro is None: return np.zeros(len(X_price))
+                if X_macro is None: 
+                    return np.zeros(len(X_price))
                 return self.model.predict([X_final, X_macro], verbose=0).flatten()
             
             return self.model.predict(X_final, verbose=0).flatten()
         except Exception as e:
-            st.error(f"Prediction Error in {self.mode}: {e}")
+            print(f"Prediction Error in {self.mode}: {e}")
             return np.zeros(len(X_price))
 
     def save(self, filepath):

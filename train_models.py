@@ -10,7 +10,7 @@ def automate_training():
     df = load_raw_data()
     lookback = 20
     
-    # Target column - update to whatever your dashboard is focusing on (e.g., 'SLV' or 'GLD')
+    # Target column
     target = "SLV"
     X, y, _, _ = build_feature_matrix(df, target_col=target)
     
@@ -19,7 +19,7 @@ def automate_training():
     y_adj = y[lookback:]
     X_macro = df[['HY_SPREAD', 'VIX', 'DXY']].iloc[lookback:].values
 
-    # Ensure /models directory exists
+    # Ensure /models directory exists locally
     os.makedirs("models", exist_ok=True)
 
     # 3. Train and Save Option K (Dual-Stream)
@@ -35,6 +35,33 @@ def automate_training():
         engine_i.save("models/opt_i_cnn.h5")
 
     print("✅ Training Complete. Files generated in /models.")
+
+    # --- DIRECT API INJECTION ---
+    from huggingface_hub import HfApi
+    
+    api = HfApi()
+    token = os.getenv("HF_TOKEN")
+    repo_id = "P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO"
+    
+    if token:
+        print("🚀 Teleporting models to Hugging Face models/ folder...")
+        try:
+            # Force upload to the SPECIFIC subfolder
+            for model_file in ["opt_k_dual.h5", "opt_i_cnn.h5"]:
+                local_path = f"models/{model_file}"
+                if os.path.exists(local_path):
+                    api.upload_file(
+                        path_or_fileobj=local_path,
+                        path_in_repo=f"models/{model_file}", # This is the "GPS" fix
+                        repo_id=repo_id,
+                        repo_type="space",
+                        token=token
+                    )
+                    print(f"✅ {model_file} injected into models/ successfully!")
+        except Exception as e:
+            print(f"❌ Upload failed: {e}")
+    else:
+        print("⚠️ HF_TOKEN missing. Skipping upload.")
 
 if __name__ == "__main__":
     automate_training()
