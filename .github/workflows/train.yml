@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required to modify history
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -27,22 +29,23 @@ jobs:
       - name: Train Deep Learning Models
         run: python train_models.py
 
-      - name: Upload Models via API (Bypassing Git Binary Error)
+      - name: Clean Git Index and Upload via API
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          # 1. Remove binaries from the local Git tracking so they don't trigger the error
+          git rm -r --cached models/*.h5 || echo "Files already untracked"
+          
+          # 2. Upload via API (This bypasses the binary rejection wall)
           python -c "
           from huggingface_hub import HfApi
           import os
           api = HfApi()
-          
-          # This direct API upload does NOT use 'git push'
-          # It bypasses the 'binary files' rejection error entirely
           api.upload_folder(
               folder_path='models',
               repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
               repo_type='space',
               token=os.environ['HF_TOKEN']
           )
-          print('✅ Models uploaded successfully via API!')
           "
+          print('✅ API Upload Complete. Binaries removed from Git tracking.')
