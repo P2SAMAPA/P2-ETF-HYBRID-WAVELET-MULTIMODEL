@@ -77,7 +77,7 @@ class DeepHybridEngine:
             print(f"DL Training Error: {e}")
             return False
 
-  def predict_series(self, X_price, X_macro=None):
+def predict_series(self, X_price, X_macro=None):
         import streamlit as st
         
         file_map = {
@@ -87,16 +87,17 @@ class DeepHybridEngine:
         }
         
         if self.mode in file_map:
-            model_file = file_map[self.mode]
-            model_path = os.path.join("models", model_file)
+            model_path = os.path.join("models", file_map[self.mode])
 
             if os.path.exists(model_path):
                 if self.model is None:
                     from tensorflow.keras.models import load_model
+                    # Load model without compiling to save time and memory
                     self.model = load_model(model_path, compile=False)
                     self.is_trained = True
                 
-                # Critical: Convert 2D backtest data to 3D temporal blocks
+                # --- CRITICAL: THE 3D RESHAPER ---
+                # Converts (Samples, Features) -> (Samples, Lookback, Features)
                 if len(X_price.shape) == 2:
                     X_3d = np.array([X_price[i-self.lookback:i] for i in range(self.lookback, len(X_price)+1)])
                     padding = np.zeros((self.lookback-1, self.lookback, X_price.shape[1]))
@@ -104,11 +105,12 @@ class DeepHybridEngine:
                 else:
                     X_final = X_price
 
+                # Route to the correct input stream
                 if self.mode == "Option K":
                     return self.model.predict([X_final, X_macro], verbose=0).flatten()
                 return self.model.predict(X_final, verbose=0).flatten()
 
-        # Default fallback (e.g., SVR or Zeros)
+        # Default fallback to avoid crashes
         return np.zeros(len(X_price))
 
             # 3. Load model if not already in memory
