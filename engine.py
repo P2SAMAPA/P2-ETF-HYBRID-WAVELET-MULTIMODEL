@@ -74,23 +74,25 @@ class DeepHybridEngine:
         if self.mode in file_map:
             model_file = file_map[self.mode]
             
-            # RECTIFIED PATHING LOGIC
+            # RECTIFIED: Enhanced Multi-Path & LFS Check for Hugging Face
             base_dir = os.path.dirname(os.path.abspath(__file__))
-            
-            # Try Path 1: Inside 'models' folder
-            path1 = os.path.join(base_dir, "models", model_file)
-            # Try Path 2: Root directory (fallback for certain cloud environments)
-            path2 = os.path.join(base_dir, model_file)
+            possible_paths = [
+                os.path.join(base_dir, "models", model_file),
+                os.path.join(base_dir, model_file),
+                os.path.join("/app", "models", model_file),
+                os.path.join("/app", model_file)
+            ]
             
             model_path = None
-            if os.path.exists(path1):
-                model_path = path1
-            elif os.path.exists(path2):
-                model_path = path2
+            for p in possible_paths:
+                if os.path.exists(p):
+                    # Check if it's a real file (>2KB) and not an LFS pointer
+                    if os.path.getsize(p) > 2048:
+                        model_path = p
+                        break
             
             if model_path:
                 try:
-                    # Clear session to prevent memory bloat in Streamlit
                     from tensorflow.keras import backend as K
                     K.clear_session()
                     
@@ -103,10 +105,10 @@ class DeepHybridEngine:
                 except Exception as e:
                     print(f"❌ Load Error for {self.mode}: {e}")
             else:
-                # Debugging print to see where it looked
-                print(f"⚠️ Missing File. Looked in: {path1} and {path2}")
+                print(f"⚠️ {self.mode}: File missing or LFS pointer detected at all paths.")
 
         return np.zeros(len(X_price))
+
     def save(self, filepath):
         if self.model: self.model.save(filepath)
 
@@ -163,7 +165,14 @@ class A2CEngine:
             self.weights = np.random.normal(0, 0.1, features.shape[1])
         return np.dot(features, self.weights)
 
-def update_model_checkpoint(raw_df: pd.DataFrame, target_col: str = "GLD", save_path: str = "models/svr_momentum_poly.pkl") -> "MomentumEngine | None":
+# ---------------------------------------------------------------------------
+# PRODUCTION UTILITY (RESTORED)
+# ---------------------------------------------------------------------------
+def update_model_checkpoint(
+    raw_df: pd.DataFrame,
+    target_col: str = "GLD",
+    save_path: str = "models/svr_momentum_poly.pkl"
+) -> "MomentumEngine | None":
     from data.processor import build_feature_matrix as build_features
     X, y, _, _ = build_features(raw_df, target_col=target_col)
     engine = MomentumEngine()
@@ -171,4 +180,5 @@ def update_model_checkpoint(raw_df: pd.DataFrame, target_col: str = "GLD", save_
     if success:
         engine.save(save_path)
         return engine
+    print("Model training failed — returning None.")
     return None
