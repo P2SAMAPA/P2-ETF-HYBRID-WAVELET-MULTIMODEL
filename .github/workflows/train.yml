@@ -1,20 +1,19 @@
 name: Cloud Model Trainer
 
 on:
-  # 1. Automatic Daily Schedule at 11:00 PM UTC
   schedule:
-    - cron: '0 23 * * *'
+    - cron: '0 23 * * *' # Daily at 11:00 PM UTC
     
-  # 2. Trigger on code changes
   push:
     branches:
       - main
     paths:
+      - 'app.py'            # Monitored in root
+      - 'engine.py'         # Monitored in root
       - 'train_models.py'
-      - 'engine.py'
+      - 'requirements.txt'
       - 'data/**'
       
-  # 3. Allows you to still click "Run workflow" manually
   workflow_dispatch: 
 
 jobs:
@@ -23,6 +22,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -41,20 +42,19 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python train_models.py
 
-      - name: Upload to Hugging Face
+      - name: Sync Root Files and Models to HF
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          python -c "
-          from huggingface_hub import HfApi
-          import os
-          api = HfApi()
-          if os.path.exists('models'):
-              api.upload_folder(
-                  folder_path='models',
-                  path_in_repo='models',
-                  repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
-                  repo_type='space',
-                  token=os.environ['HF_TOKEN']
-              )
-          "
+          git config --global user.email "bot@github.com"
+          git config --global user.name "GitHub Action"
+          
+          # Force add the h5 files even if in .gitignore
+          git add -f models/*.h5 models/*.pkl || true
+          
+          # Commit the changes (models + any code updates)
+          git commit -m "Automated Sync: Models and Code [skip ci]" || echo "No changes to sync"
+          
+          # Push the entire root directory to HF Space
+          git remote add space https://P2SAMAPA:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO
+          git push --force space main
