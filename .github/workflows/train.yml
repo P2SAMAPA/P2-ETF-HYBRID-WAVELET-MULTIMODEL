@@ -15,8 +15,8 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          lfs: true # Prepared for large file handling
-          fetch-depth: 0 # Essential for pushing back to the remote
+          lfs: true
+          fetch-depth: 0 
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -38,17 +38,17 @@ jobs:
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
           
-          # 2. Initialize Git LFS correctly
+          # 2. Initialize LFS and track files
           git lfs install
-          
-          # 3. Track .h5 files as Large Files
-          # This creates the .gitattributes file that HF requires
           git lfs track "models/*.h5"
           git add .gitattributes
           
-          # 4. Add model weights
+          # 3. CRITICAL: Clear index of non-LFS binaries to fix "rejected" error
+          git rm -r --cached models/*.h5 || echo "Already clean"
+          
+          # 4. Re-add files as LFS pointers
           git add models/*.h5
           
-          # 5. Force push is REQUIRED to overwrite the previous binary rejections
-          git commit -m "🤖 Auto-update neural weights via LFS" || echo "No changes"
+          # 5. Commit and Force Push to Hugging Face
+          git commit -m "🤖 Clean LFS update for neural weights" || echo "No changes"
           git push --force
