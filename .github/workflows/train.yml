@@ -46,6 +46,10 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # RECTIFIED: Pull remote changes (packages.txt/requirements.txt) before pushing
+          git pull --rebase origin main
+          
           git add -f models/*.h5 models/*.pkl
           git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-update trained models [skip ci]" && git push)
 
