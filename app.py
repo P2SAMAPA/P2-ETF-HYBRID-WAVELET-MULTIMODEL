@@ -4,7 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from data.loader import load_raw_data
-from models.engine import MomentumEngine, A2CEngine
+from models.engine import MomentumEngine, A2CEngine, DeepHybridEngine # Added DeepHybridEngine
 
 # Institutional UI Configuration - White Background
 st.set_page_config(page_title="P2 ETF WAVELET SVR MULTI MODEL", layout="wide", initial_sidebar_state="collapsed")
@@ -58,18 +58,46 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
 
     bsts_filter = BayesianFilter() if "BSTS" in model_choice else None
 
-    # --- SVR/A2C PREDICTIONS ---
+    # --- PREDICTION ENGINE ROUTING (FIXED) ---
     if not (model_choice.startswith("Option E") or model_choice.startswith("Option G")):
         for ticker in assets:
             try:
+                # 1. Build Features
                 X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
                 is_mask = idx.year < start_yr
                 oos_mask = idx.year >= start_yr
-                engine = A2CEngine() if "Option C" in model_choice else MomentumEngine(c_param=700.0)
-                engine.train(X[is_mask], y[is_mask])
-                preds = engine.predict_series(X[oos_mask])
+                
+                # 2. Select Correct Engine
+                if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
+                    # Determine Mode for Deep Engine
+                    mode_map = {"Option I": "Option I", "Option J": "Option J", "Option K": "Option K"}
+                    active_mode = next((v for k, v in mode_map.items() if k in model_choice), "Option I")
+                    
+                    engine = DeepHybridEngine(mode=active_mode)
+                    # NOTE: We do NOT call engine.train here because we want to use the 
+                    # pre-trained models from the GitHub Action API Sync.
+                    
+                    # For Option K, we need macro features
+                    X_macro = None
+                    if active_mode == "Option K":
+                        macro_cols = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
+                        X_macro = raw_df[macro_cols].loc[idx[oos_mask]].values
+                    
+                    preds = engine.predict_series(X[oos_mask], X_macro=X_macro)
+                
+                elif "Option C" in model_choice:
+                    engine = A2CEngine()
+                    engine.train(X[is_mask], y[is_mask])
+                    preds = engine.predict_series(X[oos_mask])
+                
+                else:
+                    engine = MomentumEngine(c_param=700.0)
+                    engine.train(X[is_mask], y[is_mask])
+                    preds = engine.predict_series(X[oos_mask])
+                
                 all_preds[ticker] = pd.Series(preds, index=idx[oos_mask])
             except Exception as e:
+                st.error(f"Error processing {ticker}: {e}")
                 continue
 
     pred_df = pd.DataFrame(all_preds).dropna() if all_preds else pd.DataFrame()
@@ -89,10 +117,8 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
 
     for date in oos_idx:
         # SIGNAL ROUTING
-        if model_choice.startswith("Option E"):
+        if model_choice.startswith("Option E") or model_choice.startswith("Option G"):
             signal_asset = hmm_signals.get(date, "CASH")
-        elif model_choice.startswith("Option G"):
-            signal_asset = hmm_signals.get(date, "CASH") 
         elif model_choice.startswith("Option F"):
             daily_preds = pred_df.loc[date] if date in pred_df.index else None
             hmm_gate = hmm_signals.get(date, "CASH")
@@ -171,15 +197,12 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps):
 st.markdown("<h1 style='text-align: center; color: #1a73e8; margin-bottom: 0;'>🦅 P2 ETF WAVELET SVR MULTI MODEL</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #5f6368; font-weight: 500;'>Institutional Strategy Performance & Signal Console</p>", unsafe_allow_html=True)
 
-    
 with st.sidebar:
     st.header("Terminal Config")
     
-    # --- FIXED REFRESH LOGIC ---
     if st.button("🔄 Force Data Refresh"):
         with st.spinner("Connecting to FRED & Stooq..."):
             st.cache_data.clear()
-            # This calls the force_sync we added to your loader.py
             try:
                 load_raw_data(force_sync=True)
                 st.success("Sync Complete!")
@@ -187,11 +210,9 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Sync Error: {e}")
 
-    # Use .get() to avoid errors if last_refresh isn't set yet
     last_ref = st.session_state.get('last_refresh', 'Pending')
     st.caption(f"✨ Last sync: {last_ref}")
       
-    # ... rest of your sidebar code (slider, radio, etc.)
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Model Logic", [
         "Option A - Wavelet-SVR", "Option B - Wavelet-SVR-PPO", "Option C - Wavelet-A2C", 
@@ -209,7 +230,6 @@ if output:
     data = output["df"]
     strat_rets = output["strat_rets_raw"]
     
-    # ROW 1: PRIMARY TARGET SIGNAL
     conf_color = "#2e7d32" if output['confidence'] > 0.7 else "#f57c00"
     st.markdown(f"""
         <div style="background-color: #f1f8e9; padding: 30px; border-radius: 12px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
@@ -224,66 +244,35 @@ if output:
         </div>
     """, unsafe_allow_html=True)
 
- # --- PERFORMANCE METRICS ---
     m1, m2, m3, m4, m5, m6 = st.columns(6)
-    
-    # Calculate Stats
     excess = data["Strategy_Ret"] - data["RF"]
     ann_ret = (data["Equity"].iloc[-1] / 100) ** (252 / len(data)) - 1
     sharpe = (excess.mean() / excess.std()) * np.sqrt(252) if excess.std() != 0 else 0
-    
-    # Kelly & Win/Loss Logic
     pos_rets = [r for r in strat_rets if r > 0]
     neg_rets = [abs(r) for r in strat_rets if r < 0]
     win_loss_ratio = (np.mean(pos_rets) / np.mean(neg_rets)) if (pos_rets and neg_rets) else 1.0
-    
     hit_ratio_sync = (pd.Series(strat_rets).tail(15) > 0).sum() / 15
     p, b = hit_ratio_sync, win_loss_ratio
     kelly_f = ((p * (b + 1)) - 1) / b if b > 0 else 0
     safe_kelly = max(0, min(1.0, kelly_f * 0.5))
 
-    # --- THE CLEANEST UI (NO DELTA = NO ARROWS) ---
-    # --- CALCULATIONS FOR METRICS ---
-    # Find the minimum daily return and its full date
     worst_day_val = data['Strategy_Ret'].min()
-    # %Y gives the 4-digit year
     worst_day_date = data['Strategy_Ret'].idxmin().strftime('%m/%d/%Y')
 
     m1.metric("Ann. Return", f"{ann_ret:.2%}")
     m2.metric("Sharpe", f"{sharpe:.2f}")
     m3.metric("Max DD", f"{data['Drawdown'].min():.2%}")
-    
-    # Restored Max DD (Daily) with Date
-    m4.metric(
-        label="Max DD (Daily)",
-        value=f"{worst_day_val:.2%}",
-        delta=f"on {worst_day_date}",
-        delta_color="inverse"
-    )
-    
+    m4.metric(label="Max DD (Daily)", value=f"{worst_day_val:.2%}", delta=f"on {worst_day_date}", delta_color="inverse")
     m5.metric("Hit Ratio", f"{hit_ratio_sync:.0%}")
-    # We put the W/L ratio in a small caption below OR the label.
-    # By NOT passing 'delta=', the arrow is physically impossible.
     m6.metric(label=f"Kelly (W/L: {win_loss_ratio:.2f})", value=f"{safe_kelly:.0%}")
 
-    # ========================================================
-    # 📈 INSERT THE GRAPH CODE BELOW THIS LINE
-    # ========================================================
-    # --- PERFORMANCE GRAPH ---
     st.markdown("---")
     st.subheader("Performance Comparison (Base 100)")
-
-    # 1. Normalization Logic
-    spy_start = data["SPY"].iloc[0]
-    agg_start = data["AGG"].iloc[0]
-    equity_start = data["Equity"].iloc[0]
-
+    spy_start, agg_start, equity_start = data["SPY"].iloc[0], data["AGG"].iloc[0], data["Equity"].iloc[0]
     data["SPY_Norm"] = (data["SPY"] / spy_start) * 100
     data["AGG_Norm"] = (data["AGG"] / agg_start) * 100
     data["Strategy_Norm"] = (data["Equity"] / equity_start) * 100
 
-    # 2. Charting Logic
-    import plotly.graph_objects as go
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=data.index, y=data["Strategy_Norm"], name='Strategy', line=dict(color='#00FFCC', width=3)))
     fig.add_trace(go.Scatter(x=data.index, y=data["SPY_Norm"], name='SPY', line=dict(color='#FF4B4B', width=1.5, dash='dash')))
@@ -291,24 +280,15 @@ if output:
     fig.update_layout(template="plotly_dark", hovermode="x unified", height=450, margin=dict(l=0, r=0, t=30, b=0))
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- COLOR-CODED AUDIT TRAIL ---
     st.markdown("---")
     st.subheader("📋 Audit Trail")
-
     audit_display = output["audit"].copy().sort_index(ascending=False)
     audit_display.index = pd.to_datetime(audit_display.index).strftime('%Y-%m-%d')
-
-    def color_returns(val):
-        color = '#228B22' if val > 0 else '#FF4B4B' if val < 0 else '#808080'
-        return f'color: {color}'
-
-    styled_audit = audit_display.head(20).style.format({"Daily_Return": "{:.2%}"}).applymap(color_returns, subset=['Daily_Return'])
+    styled_audit = audit_display.head(20).style.format({"Daily_Return": "{:.2%}"}).applymap(lambda x: f"color: {'#228B22' if x > 0 else '#FF4B4B' if x < 0 else '#808080'}", subset=['Daily_Return'])
     st.dataframe(styled_audit, use_container_width=True)
 
-    # --- DYNAMIC METHODOLOGY SECTION (UNTOUCHED LOGIC) ---
     st.markdown("---")
     st.subheader("🔬 Methodology & Engine Logic")
-    
     methods = {
         "Option A": "**Wavelet-SVR:** Utilizes Wavelet transforms to denoise price data before SVR identifies non-linear regression boundaries.",
         "Option B": "**SVR-PPO:** Support Vector Regression gated by a Proximal Policy Optimization agent to stabilize weight updates.",
@@ -322,14 +302,5 @@ if output:
         "Option J": "**Wavelet-SVR-CNN-LSTM:** SVR establishes a baseline trend, while a CNN-LSTM residual model captures complex volatility spikes.",
         "Option K": "**Parallel-Dual-Stream:** Dedicated neural pathways for Price Action and Macro Risk (HY Spreads/VIX) to prevent signal smearing.",
     }
-    
     active_logic = next((desc for key, desc in methods.items() if key in opt), "Ensemble Engine Execution")
-
-    st.markdown(f"""
-    **Active Strategy Architecture:**
-    * {active_logic}
-    
-    **Risk Controls:**
-    * **Kelly Criterion:** Half-Kelly sizing based on a 15-day rolling window.
-    * **Regime Gating:** Automated CASH reversion based on Dollar Index (DXY) and Yield Curve monitoring.
-    """)
+    st.markdown(f"* {active_logic}\n* **Kelly Criterion:** Half-Kelly sizing based on a 15-day rolling window.\n* **Regime Gating:** Automated CASH reversion.")
