@@ -4,7 +4,8 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from data.loader import load_raw_data
-from engine import MomentumEngine, A2CEngine, DeepHybridEngine 
+from engine import MomentumEngine, A2CEngine, DeepHybridEngine
+from analytics.regime import RegimeHMM, BayesianFilter 
 
 # --- CONFIG & THEME ---
 st.set_page_config(page_title="P2 ETF WAVELET SVR MULTI MODEL", layout="wide", initial_sidebar_state="expanded")
@@ -32,6 +33,12 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, _force_sync=F
     # Pass force_sync into loader logic
     raw_df = load_raw_data(force_sync=_force_sync)
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
+    
+    # Pre-calculate returns for specialized engines
+    for a in assets:
+        if f"{a}_Ret" not in raw_df.columns:
+            raw_df[f"{a}_Ret"] = raw_df[a].pct_change()
+            
     t_cost_pct = t_costs_bps / 10_000
     from data.processor import build_feature_matrix
 
@@ -41,7 +48,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, _force_sync=F
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             m_oos, m_is = idx.year >= start_yr, idx.year < start_yr
             
-            # Logic mapping for Deep Engines
+            # --- RECTIFIED LOGIC MAPPING ---
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 eng = DeepHybridEngine(mode=model_choice)
                 X_vals = X
@@ -49,14 +56,47 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, _force_sync=F
                 X_3d = np.array([np.vstack([np.repeat(X_vals[0:1], 20-len(X_vals[max(0, i-19):i+1]), axis=0), X_vals[max(0, i-19):i+1]]) for i in oos_indices])
                 X_macro = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].values if "Option K" in model_choice else None
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
-            # Logic mapping for RL Engines
-            elif "Option C" in model_choice or "Option D" in model_choice:
+
+            elif "Option F" in model_choice:  # Wavelet-HMM
+                hmm = RegimeHMM()
+                hmm.train_and_assign(raw_df.loc[idx[m_is]], assets)
+                macro_oos = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].diff().loc[idx[m_oos]].fillna(0)
+                preds = [1.0 if hmm.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i in range(len(macro_oos))]
+
+            elif "Option E" in model_choice:  # Wavelet-Bayesian-Regime
+                bf = BayesianFilter()
+                eng = MomentumEngine(); eng.train(X[m_is], y[m_is])
+                conf = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]])
+                preds = eng.predict_series(X[m_oos]) * conf
+
+            elif "Option G" in model_choice:  # Wavelet-SVR-HMM
+                eng = MomentumEngine(); eng.train(X[m_is], y[m_is])
+                hmm = RegimeHMM()
+                hmm.train_and_assign(raw_df.loc[idx[m_is]], assets)
+                macro_oos = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].diff().loc[idx[m_oos]].fillna(0)
+                raw_preds = eng.predict_series(X[m_oos])
+                preds = [p if hmm.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i, p in enumerate(raw_preds)]
+
+            elif "Option H" in model_choice:  # Wavelet-SVR-Bayesian
+                eng = MomentumEngine(); eng.train(X[m_is], y[m_is])
+                bf = BayesianFilter()
+                raw_preds = eng.predict_series(X[m_oos])
+                conf = bf.get_confidence(raw_df[ticker].loc[idx[m_oos]])
+                preds = raw_preds * conf
+
+            elif "Option D" in model_choice:  # Wavelet-SVR-A2C Ensemble
+                eng_s = MomentumEngine(); eng_s.train(X[m_is], y[m_is])
+                eng_r = A2CEngine(); eng_r.train(X[m_is], y[m_is])
+                preds = (eng_s.predict_series(X[m_oos]) + eng_r.predict_series(X[m_oos])) / 2
+
+            elif "Option C" in model_choice:  # Wavelet-A2C
                 eng = A2CEngine(); eng.train(X[m_is], y[m_is])
                 preds = eng.predict_series(X[m_oos])
-            # Logic mapping for SVR/Momentum Engines
-            else:
+
+            else:  # Option A & B
                 eng = MomentumEngine(); eng.train(X[m_is], y[m_is])
                 preds = eng.predict_series(X[m_oos])
+                
             all_preds[ticker] = pd.Series(preds, index=idx[m_oos])
         except: continue
 
@@ -112,7 +152,6 @@ with st.sidebar:
     st.caption(f"Refreshed on {refreshed_text}")
     
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
-    # Fixed duplicate Option D issue
     opt = st.radio("Intelligence Engine", [
         "Option A- Wavelet-SVR", "Option B-Wavelet-SVR-PPO", "Option C: Wavelet-A2C", 
         "Option D: Wavelet-SVR-A2C", "Option E: Wavelet-Bayesian-Regime", "Option F: Wavelet-HMM", 
