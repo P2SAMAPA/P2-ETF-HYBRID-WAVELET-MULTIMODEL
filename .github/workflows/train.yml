@@ -22,7 +22,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements_train.txt
-          pip install huggingface_hub  # Essential for the API upload
+          pip install huggingface_hub
 
       - name: Train Deep Learning Models
         run: python train_models.py
@@ -36,8 +36,8 @@ jobs:
           import os
           api = HfApi()
           
-          # This command skips the 'Git Push' and sends files directly to HF storage
-          # It overwrites existing files in the 'models' folder on your Space
+          # This command skips Git and sends files directly to HF storage.
+          # It ignores your commit history and fixes the 'binary rejection' error.
           api.upload_folder(
               folder_path='models',
               repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
