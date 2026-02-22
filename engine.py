@@ -22,7 +22,6 @@ class DeepHybridEngine:
         
         price_in = Input(shape=(self.lookback, n_price_feats))
         x = Conv1D(filters=32, kernel_size=3, activation='relu', padding='same')(price_in)
-        
         macro_in = Input(shape=(n_macro_feats,))
         y_feat = Dense(16, activation='relu')(macro_in)
         
@@ -34,26 +33,31 @@ class DeepHybridEngine:
         combined = Concatenate()([x, y_feat])
         z = Dense(32, activation='relu')(combined)
         out = Dense(1, activation='tanh')(z)
-        
         return Model(inputs=[price_in, macro_in], outputs=out)
 
     def train(self, X, y):
-        """Fixed signature: Only 2 arguments to match train_models.py"""
+        """Matches train_models.py (X_3d, y_3d)"""
         n_price = X.shape[2]
-        # Dummy macro features for training compatibility
-        X_macro = np.zeros((X.shape[0], 8))
+        X_macro = np.zeros((X.shape[0], 8)) # Default macro size
         self.model = self._build_parallel_model(n_price, 8)
         self.model.compile(optimizer='adam', loss='mse')
         self.model.fit([X, X_macro], y, epochs=5, batch_size=32, verbose=0)
         self.is_trained = True
         return True
 
-    def predict_series(self, X, full_index=None):
+    def predict_series(self, X, X_macro=None, full_index=None):
+        """Matches app.py: eng.predict_series(X_3d, X_macro=X_macro)"""
         idx = full_index if full_index is not None else range(len(X))
         if not self.is_trained or self.model is None:
             return pd.Series(0.0, index=idx)
-        X_macro = np.zeros((X.shape[0], 8))
+        
+        # If app.py sends X_macro=None, create dummy to prevent Keras crash
+        if X_macro is None:
+            X_macro = np.zeros((X.shape[0], 8))
+            
         raw_preds = self.model.predict([X, X_macro], verbose=0).flatten()
+        
+        # Fill index to ensure graph alignment
         preds = np.zeros(len(idx))
         preds[-len(raw_preds):] = raw_preds
         return pd.Series(preds, index=idx)
@@ -87,7 +91,8 @@ class MomentumEngine:
             return True
         except: return False
 
-    def predict_series(self, X, full_index=None):
+    def predict_series(self, X, X_macro=None, full_index=None):
+        """Universal signature for all call types"""
         idx = full_index if full_index is not None else (X.index if hasattr(X, 'index') else range(len(X)))
         if not self.is_trained:
             return pd.Series(0.0, index=idx)
@@ -108,9 +113,7 @@ class MomentumEngine:
 # ---------------------------------------------------------------------------
 class A2CEngine:
     def __init__(self, lr=0.01):
-        self.lr = lr
-        self.weights = None
-        self.is_trained = False
+        self.lr, self.weights, self.is_trained = lr, None, False
 
     def train(self, X, y):
         f = X.values if hasattr(X, 'values') else X
@@ -119,12 +122,11 @@ class A2CEngine:
             self.weights = np.random.normal(0, 0.1, f.shape[1])
         for _ in range(5):
             preds = np.dot(f, self.weights)
-            error = l - preds
-            self.weights += self.lr * np.dot(f.T, error) / len(l)
+            self.weights += self.lr * np.dot(f.T, l - preds) / len(l)
         self.is_trained = True
         return True
 
-    def predict_series(self, X, full_index=None):
+    def predict_series(self, X, X_macro=None, full_index=None):
         idx = full_index if full_index is not None else range(len(X))
         if not self.is_trained: return pd.Series(0.0, index=idx)
         f = X.values if hasattr(X, 'values') else X
@@ -144,7 +146,5 @@ class A2CEngine:
 # BAYESIAN/HMM POST-PROCESSOR (Options E, F, G, H)
 # ---------------------------------------------------------------------------
 def run_bayesian_filter(series):
-    """Ensures signal is smoothed without losing index alignment"""
-    if not isinstance(series, pd.Series):
-        return series
+    if not isinstance(series, pd.Series): return series
     return series.rolling(window=5, min_periods=1).mean()
