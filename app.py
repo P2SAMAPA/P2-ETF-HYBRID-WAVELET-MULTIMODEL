@@ -194,23 +194,17 @@ with st.sidebar:
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
 # --- UI EXECUTION ---
-# Running the backtest engine with UI parameters
 out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma)
 
-# Check if 'out' exists and contains data to prevent the blank screen (whiteout)
-if out and isinstance(out, dict) and "df" in out and not out["df"].empty:
+if out:
     df = out["df"]
     st.title("P2 Wavelet Multi-Model")
-    
-    # Safely extracting values using .get() to handle potential missing keys or None values
-    target_asset = out.get('target', 'CASH')
-    confidence_score = out.get('conf', 0.0)
     
     st.markdown(f"""
         <div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
             <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction for NYSE: {get_next_trading_day_simple()}</p>
-            <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{target_asset}</h1>
-            <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Current Z-Score: {float(confidence_score):.2f}σ</p>
+            <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out['target']}</h1>
+            <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Current Z-Score: {out['conf']:.2f}σ</p>
         </div>
     """, unsafe_allow_html=True)
 else:
