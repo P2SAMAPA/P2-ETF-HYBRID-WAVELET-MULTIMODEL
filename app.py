@@ -189,8 +189,8 @@ with st.sidebar:
         "Option K- Wavelet- Parallel-Dual-Stream-CNN-LSTM"
     ])
     st.subheader("Risk Gate Controls")
-    sl_input = st.slider("Trailing Stop Loss (%)", 8.0, 20.0, 18.0, 0.5) / 100
-    rec_sigma = st.slider("Recovery Threshold (Sigma)", 1.0, 2.0, 1.4, 0.1)
+    sl_input = st.slider("Trailing Stop Loss (%)", 8.0, 20.0, 10.0, 0.5) / 100
+    rec_sigma = st.slider("Recovery Threshold (Sigma)", 1.0, 2.0, 1.1, 0.1)
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
 # --- UI EXECUTION ---
