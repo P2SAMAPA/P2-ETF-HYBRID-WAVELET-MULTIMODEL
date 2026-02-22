@@ -68,10 +68,13 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 target_len = np.sum(m_oos)
                 preds = eng.predict_series(X[m_oos]) * conf_vec.values[-target_len:]
             elif "Option C" in model_choice:
-                eng = A2CEngine(); eng.train(X[m_is], y[m_is])
+                eng = A2CEngine()
+                eng.load("models/a2c_weights.pkl") # Ensure your trainer saves this name
                 preds = eng.predict_series(X[m_oos])
             else:
-                eng = MomentumEngine(); eng.train(X[m_is], y[m_is])
+               else:
+                eng = MomentumEngine()
+                eng.load("models/svr_momentum_poly.pkl") # Use the pre-trained file
                 preds = eng.predict_series(X[m_oos])
             all_preds[ticker] = pd.Series(preds, index=idx[m_oos])
         except Exception:
