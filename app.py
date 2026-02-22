@@ -107,9 +107,11 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 eng.load("models/svr_momentum_poly.pkl")
                 preds = eng.predict_series(X[m_oos])
 
+            # This must be inside the try block (indented 12 spaces)
             all_preds[ticker] = pd.Series(preds, index=idx[m_oos])
             
         except Exception as e:
+            # This must align with the 'try' on line 68 (indented 8 spaces)
             print(f"Error processing {ticker}: {e}")
             continue
 
