@@ -65,8 +65,10 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
             logger(f"   -> Processing intelligence stream for {ticker}...")
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             m_oos = idx.year >= start_yr
+            oos_len = np.sum(m_oos)
             
-            if "Option I" in model_choice or "Option J" in model_choice or "Option K" in model_choice:
+            # --- DEEP LEARNING PATHS (I, J, K) ---
+            if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 eng = DeepHybridEngine(mode=model_choice)
                 model_map = {
                     "Option I: Wavelet- CNN-LSTM": "opt_i_cnn.h5",
@@ -78,15 +80,27 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 
                 oos_indices = np.where(m_oos)[0]
                 X_3d = np.array([np.vstack([np.repeat(X[0:1], 20-len(X[max(0, i-19):i+1]), axis=0), X[max(0, i-19):i+1]]) for i in oos_indices])
-                X_macro = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].values if "Option K" in model_choice else None
+                
+                # RECTIFIED: Expand macro features from 5 to 8 for Option K
+                if "Option K" in model_choice:
+                    macro_base = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]]
+                    # Adding 3 synthetic/derived columns to satisfy (None, 8) shape requirement
+                    macro_base["Asset_Mom"] = raw_df[f"{ticker}_Ret"].rolling(20).mean().loc[idx[m_oos]].fillna(0)
+                    macro_base["Asset_Vol"] = raw_df[f"{ticker}_Ret"].rolling(20).std().loc[idx[m_oos]].fillna(0)
+                    macro_base["Mkt_Proxy"] = raw_df["SPY_Ret"].loc[idx[m_oos]].fillna(0)
+                    X_macro = macro_base.values
+                else:
+                    X_macro = None
+                    
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
 
+            # --- HMM PATHS ---
             elif "Option F" in model_choice:
                 if hmm_model:
                     macro_oos = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].diff().loc[idx[m_oos]].fillna(0)
                     preds = [1.0 if hmm_model.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i in range(len(macro_oos))]
                 else:
-                    preds = np.zeros(np.sum(m_oos))
+                    preds = np.zeros(oos_len)
 
             elif "Option G" in model_choice:
                 eng = MomentumEngine()
@@ -98,23 +112,27 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 else:
                     preds = raw_svr
 
+            # --- BAYESIAN PATHS (E, H) ---
             elif "Option H" in model_choice or "Option E" in model_choice:
                 eng = MomentumEngine()
                 eng.load("models/svr_momentum_poly.pkl")
                 bf = BayesianFilter()
                 conf_data = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]])
-                conf_vals = conf_data.values if hasattr(conf_data, 'values') else conf_data
+                
+                # RECTIFIED: Flatten and index safely to avoid 'scalar variable' TypeError
+                conf_vals = np.array(conf_data.values if hasattr(conf_data, 'values') else conf_data).flatten()
+                conf_tail = conf_vals[-oos_len:]
                 
                 if "Option H" in model_choice:
-                    preds = eng.predict_series(X[m_oos]) * conf_vals[-np.sum(m_oos):]
+                    preds = eng.predict_series(X[m_oos]) * conf_tail
                 else:
-                    preds = conf_vals[-np.sum(m_oos):]
+                    preds = conf_tail
 
+            # --- RL & DEFAULT ---
             elif "Option C" in model_choice:
                 eng = A2CEngine()
                 eng.load("models/a2c_weights.pkl")
                 preds = eng.predict_series(X[m_oos])
-
             else:
                 eng = MomentumEngine()
                 eng.load("models/svr_momentum_poly.pkl")
@@ -164,6 +182,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
     res["SPY"] = (raw_df.loc[common_idx, "SPY_Ret"] + 1).cumprod() * 100
     res["AGG"] = (raw_df.loc[common_idx, "AGG_Ret"] + 1).cumprod() * 100
     
+    logger("✅ Analysis Complete!")
     return {
         "df": res.ffill().bfill(), 
         "audit": pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx), 
