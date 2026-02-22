@@ -52,7 +52,13 @@ def train_and_save_all():
     model_k = DeepHybridEngine(mode="Option K")
     if model_k.train(X_3d, y_3d):
         model_k.save("models/opt_k_hybrid.h5")
-
+        
+    # --- Train Option C ---
+    print("Training Option C (A2C)...")
+    model_c = A2CEngine()
+    if model_c.train(X, y):
+        model_c.save("models/a2c_weights.pkl")
+        
     # --- Train Option A ---
     print("Updating Option A (SVR)...")
     model_a = MomentumEngine()
