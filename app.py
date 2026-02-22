@@ -193,7 +193,7 @@ with st.sidebar:
     rec_sigma = st.slider("Recovery Threshold (Sigma)", 1.0, 2.0, 1.1, 0.1)
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
-# --- DEBUG TOGGLE (Set to False to hide logs later) ---
+# --- DEBUG TOGGLE ---
 DEBUG_MODE = True 
 
 # --- UI EXECUTION ---
@@ -201,21 +201,12 @@ try:
     if DEBUG_MODE:
         with st.status("🔍 Engine Heartbeat (Debug Mode)", expanded=True) as status:
             st.write("Initializing backtest engine...")
-            # We pass the 'status' object into the function
+            # We pass the 'status' object to show progress on screen
             out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma, _log=status)
             status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
     else:
         with st.spinner("Processing Model Results..."):
             out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma)
-
-    if out and isinstance(out, dict) and "df" in out and not out["df"].empty:
-        # --- (Your existing UI rendering code starts here) ---
-        df = out["df"]
-        st.title("P2 Wavelet Multi-Model")
-        # ... rest of your code ...
-try:
-    with st.spinner("Processing Model Results..."):
-        out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma)
 
     # 1. Validation: Ensure 'out' exists and contains a valid, non-empty DataFrame
     if out and isinstance(out, dict) and "df" in out and not out["df"].empty:
@@ -231,10 +222,9 @@ try:
             </div>
         """, unsafe_allow_html=True)
         
-        # --- METRICS CALCULATION WITH SAFETY ---
+        # --- METRICS GRID ---
         c1, c2, c3, c4, c5 = st.columns(5)
         
-        # Safety: Check if we have enough rows and non-zero volatility for Sharpe
         if len(df) > 1 and df['Strategy_Ret'].std() != 0:
             ann_ret = float((df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1)
             sharpe = float(((df['Strategy_Ret']-df['RF']).mean() / df['Strategy_Ret'].std()) * np.sqrt(252))
@@ -251,8 +241,6 @@ try:
                 hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
                 st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
                 st.markdown(f'<p class="metric-sub">Last 15 Trading Sessions</p>', unsafe_allow_html=True)
-        else:
-            st.warning("Insufficient trading data for full performance metrics.")
 
         # --- CHARTING ---
         st.subheader("OOS Cumulative Return")
@@ -261,13 +249,7 @@ try:
         fig.add_trace(go.Scatter(x=df.index, y=df["SPY"], name="SPY Bench", line=dict(color='#718096', dash='dot')))
         fig.add_trace(go.Scatter(x=df.index, y=df["AGG"], name="AGG Bench", line=dict(color='#e53e3e', dash='dot')))
 
-        fig.update_layout(
-            template="plotly_white",
-            xaxis=dict(type='date', tickformat='%Y-%m'),
-            height=500,
-            margin=dict(l=0,r=0,t=10,b=0),
-            legend=dict(orientation="h", y=1.1, x=1, xanchor='right')
-        )
+        fig.update_layout(template="plotly_white", height=500, margin=dict(l=0,r=0,t=10,b=0))
         st.plotly_chart(fig, use_container_width=True)
 
         # --- AUDIT TRAIL ---
@@ -277,19 +259,19 @@ try:
             audit_df.index = audit_df.index.strftime('%Y-%m-%d')
             st.dataframe(audit_df.style.map(lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038', subset=['Return']).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}), use_container_width=True)
 
-        # --- METHODOLOGIES LIST ---
+        # --- METHODOLOGY ---
         methodologies = {
-            "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR. Wavelet transform captures mid-term momentum shifts.",
-            "Option B": "Hybrid RL-Supervised model using PPO for high-probability entry windows.",
-            "Option C": "Advantage Actor-Critic (A2C) optimizing allocation as a continuous policy.",
-            "Option D": "SVR-A2C Ensemble weighting predictions by agent conviction scores.",
-            "Option E": "Bayesian state-space filtering for defensive regime detection.",
-            "Option F": "Hidden Markov Model (HMM) for latent regime classification.",
-            "Option G": "HMM-Biased SVR that adjusts conviction parameters based on market state.",
-            "Option H": "Bayesian-Denoised SVR applying shrinkage priors to wavelet coefficients.",
-            "Option I": "CNN-LSTM Deep Learning for spatial and temporal feature extraction.",
-            "Option J": "Attention-Augmented CNN-LSTM focusing on relevant frequency bands.",
-            "Option K": "Parallel Dual-Stream Deep Fusion incorporating macro-economic vectors."
+            "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR.",
+            "Option B": "Hybrid RL-Supervised model using PPO.",
+            "Option C": "Advantage Actor-Critic (A2C) optimizing allocation.",
+            "Option D": "SVR-A2C Ensemble weighting.",
+            "Option E": "Bayesian state-space filtering.",
+            "Option F": "Hidden Markov Model (HMM) classification.",
+            "Option G": "HMM-Biased SVR.",
+            "Option H": "Bayesian-Denoised SVR.",
+            "Option I": "CNN-LSTM Deep Learning.",
+            "Option J": "Attention-Augmented CNN-LSTM.",
+            "Option K": "Parallel Dual-Stream Deep Fusion."
         }
         method_key = opt.split("-")[0].strip() if "-" in opt else opt.split(":")[0].strip()
         st.divider()
@@ -298,10 +280,9 @@ try:
         st.info(f"⚠️ **Risk Policy:** Trailing Stop Loss at {sl_input*100:.1f}%. Recovery requires Z-Score > {rec_sigma}.")
 
     else:
-        st.error("Model Engine Error: Backtest returned no data or invalid format.")
-        st.info("Please verify your data source or 'Start Year' settings.")
+        st.error("Model Engine Error: Backtest returned no data.")
+        st.info("Check if your model files are uploaded or if the data range is valid.")
 
 except Exception as e:
-    # CAPTURE SILENT CRASHES: This will show you exactly what line failed
-    st.error("CRITICAL RENDER ERROR")
+    st.error("CRITICAL UI RENDER ERROR")
     st.exception(e)
