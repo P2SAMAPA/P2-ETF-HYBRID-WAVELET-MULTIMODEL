@@ -174,9 +174,21 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
 with st.sidebar:
     st.header("Terminal Config")
     if st.button("🔄 Refresh Data & Cache"):
-        st.cache_data.clear()
-        raw_data = load_raw_data()
-        st.toast(f"Data Synced: {raw_data.index[-1].strftime('%Y-%m-%d')}")
+       # 1. Clear cache and trigger sync if button is pressed
+if st.sidebar.button("🔄 Refresh Data & Clear Cache"):
+    st.cache_data.clear()
+    # We use 'raw_df' for the DataFrame to avoid naming conflicts with the function
+    raw_df, msg = load_raw_data(force_sync=True) 
+    st.sidebar.success(msg)
+    
+    # Line 179 Fix: Check if empty first, then use the correct variable 'raw_df'
+    if not raw_df.empty:
+        st.toast(f"Data Synced: {raw_df.index[-1].strftime('%Y-%m-%d')}")
+else:
+    # Normal load without force sync
+    raw_df, msg = load_raw_data(force_sync=False)
+
+# 2. Use 'raw_df' for the rest of your app logic (Features, Backtests, etc.)
         st.rerun()
     
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
