@@ -72,7 +72,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 eng.load("models/a2c_weights.pkl") # Ensure your trainer saves this name
                 preds = eng.predict_series(X[m_oos])
             else:
-               else:
                 eng = MomentumEngine()
                 eng.load("models/svr_momentum_poly.pkl") # Use the pre-trained file
                 preds = eng.predict_series(X[m_oos])
