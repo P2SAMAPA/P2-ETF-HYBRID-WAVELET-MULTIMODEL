@@ -29,7 +29,6 @@ def get_next_trading_day_simple():
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, _force_sync=False):
-    # Data load with explicit sync check to prevent infinite loop
     raw_df = load_raw_data(force_sync=_force_sync)
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
     
@@ -44,9 +43,9 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
     for ticker in assets:
         try:
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
-            m_oos, m_is = idx.year >= start_yr, idx.year < start_yr
+            m_oos = idx.year >= start_yr
+            m_is = idx.year < start_yr
             
-            # Engine selection logic
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 eng = DeepHybridEngine(mode=model_choice)
                 oos_indices = np.where(m_oos)[0]
@@ -66,7 +65,8 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
             elif any(opt in model_choice for opt in ["Option E", "Option H"]):
                 eng = MomentumEngine(); eng.train(X[m_is], y[m_is]); bf = BayesianFilter()
                 conf_vec = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]])
-                preds = eng.predict_series(X[m_oos]) * conf_vec.iloc[-len(np.where(m_oos)[0]):].values
+                target_len = np.sum(m_oos)
+                preds = eng.predict_series(X[m_oos]) * conf_vec.values[-target_len:]
             elif "Option C" in model_choice:
                 eng = A2CEngine(); eng.train(X[m_is], y[m_is])
                 preds = eng.predict_series(X[m_oos])
@@ -74,27 +74,26 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 eng = MomentumEngine(); eng.train(X[m_is], y[m_is])
                 preds = eng.predict_series(X[m_oos])
             all_preds[ticker] = pd.Series(preds, index=idx[m_oos])
-        except: continue
+        except Exception:
+            continue
 
     df_p = pd.DataFrame(all_preds).dropna()
     if df_p.empty: return None
     common_idx = df_p.index
     
-    # Core Strategy Logic
     equity, current_asset, hwm, in_timeout = 100.0, "CASH", 100.0, False
     rets, hist, confs = [], [], []
 
     for d in common_idx:
+        dp = df_p.loc[d]
+        z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
+        
         hwm = max(hwm, equity)
         drawdown = (equity - hwm) / hwm
         if drawdown <= -stop_loss_pct: in_timeout = True 
-        
-        dp = df_p.loc[d]
-        z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
-        raw_sig = dp.idxmax() if dp.max() > 0.0001 else "CASH"
-        
-        conf_display = 0.5 + (0.25 * (z_score / recovery_sigma)) 
         if in_timeout and z_score >= recovery_sigma: in_timeout = False
+        
+        raw_sig = dp.idxmax() if dp.max() > 0.0001 else "CASH"
         final_sig = "CASH" if in_timeout else raw_sig
         
         if final_sig != current_asset:
@@ -102,9 +101,8 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
             
         day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252 if current_asset == "CASH" else raw_df.loc[d, f"{current_asset}_Ret"]
         equity *= (1 + day_r)
-        rets.append(day_r); hist.append(current_asset); confs.append(conf_display)
+        rets.append(day_r); hist.append(current_asset); confs.append(z_score)
 
-    # DataFrame assembly for Plotly/UI
     res = pd.DataFrame(index=common_idx)
     res["Equity"] = (np.array(rets) + 1).cumprod() * 100
     res["Strategy_Ret"] = rets
@@ -122,7 +120,7 @@ with st.sidebar:
     if st.button("🔄 Refresh Data & Cache"):
         st.cache_data.clear()
         raw_data = load_raw_data()
-        st.success(f"Updated through: {raw_data.index[-1].strftime('%Y-%m-%d')}")
+        st.toast(f"Data Synced: {raw_data.index[-1].strftime('%Y-%m-%d')}")
         st.rerun()
     
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
@@ -138,32 +136,22 @@ if out:
     df = out["df"]
     st.title("P2 Wavelet Multi-Model")
     
-    # Prediction Header
-    st.markdown(f"""<div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;"><p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction for NYSE: {get_next_trading_day_simple()}</p><h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out['target']}</h1><p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Conviction: {out['conf']:.1%}</p></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;"><p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction for NYSE: {get_next_trading_day_simple()}</p><h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out['target']}</h1><p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Current Z-Score: {out['conf']:.2f}σ</p></div>""", unsafe_allow_html=True)
     
-    # --- PROFESSIONAL METRICS ROW (5 COLUMNS) ---
     c1, c2, c3, c4, c5 = st.columns(5)
-    
     ann_ret = (df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1
     c1.metric("Annual Return", f"{ann_ret:.2%}")
-    
     sharpe = ((df['Strategy_Ret']-df['RF']).mean()/df['Strategy_Ret'].std())*np.sqrt(252)
     c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-    
     c3.metric("Max DD (P/T)", f"{df['Drawdown'].min():.2%}")
-    
     with c4:
         st.metric("Max DD (Daily)", f"{df['Strategy_Ret'].min():.2%}")
-        # Nesting Worst Event and Date below
         st.markdown(f'<p class="metric-sub">Worst: <b>{df["Strategy_Ret"].min():.2%}</b> on {df["Strategy_Ret"].idxmin().strftime("%Y-%m-%d")}</p>', unsafe_allow_html=True)
-        
     with c5:
-        # Restoration of Hit Ratio (15D)
         hit_ratio_15d = (df["Strategy_Ret"].tail(15) > 0).mean()
         st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
         st.markdown(f'<p class="metric-sub">Last 15 Trading Sessions</p>', unsafe_allow_html=True)
 
-    # Cumulative Chart
     st.subheader("OOS Cumulative Return")
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df.index, y=df["Equity"], name="P2 Strategy", line=dict(color='#1a73e8', width=3)))
@@ -172,13 +160,12 @@ if out:
     fig.update_layout(template="plotly_white", xaxis_type='date', height=500, margin=dict(l=0,r=0,t=10,b=0), legend=dict(orientation="h", y=1.1, x=1, xanchor='right'))
     st.plotly_chart(fig, use_container_width=True)
 
-    # Audit Trail
     st.subheader("15-Day Audit Trail")
     audit_df = out["audit"].tail(15).copy()
     audit_df.index = audit_df.index.strftime('%Y-%m-%d')
     st.dataframe(audit_df.style.applymap(lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038', subset=['Return']).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}), use_container_width=True)
 
-    # Methodology Footer
+    # --- FULL METHODOLOGY FOOTER ---
     methodologies = {
         "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR. Wavelet transform captures mid-term momentum shifts.",
         "Option B": "Hybrid RL-Supervised model using PPO for high-probability entry windows.",
