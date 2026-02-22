@@ -63,7 +63,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 model_map = {"Option I": "opt_i_cnn.h5", "Option J": "opt_j_cnn_lstm.h5", "Option K": "opt_k_hybrid.h5"}
                 eng.load(f"models/{model_map[model_choice]}")
                 oos_indices = np.where(m_oos)[0]
-                # Reconstruct 3D window for Deep Learning
                 X_3d = np.array([np.vstack([np.repeat(X[0:1], 20-len(X[max(0, i-19):i+1]), axis=0), X[max(0, i-19):i+1]]) for i in oos_indices])
                 X_macro = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].values if "Option K" in model_choice else None
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
@@ -106,14 +105,12 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 eng.load("models/svr_momentum_poly.pkl")
                 preds = eng.predict_series(X[m_oos])
 
-            # Store results inside the TRY block
             all_preds[ticker] = pd.Series(preds, index=idx[m_oos])
             
         except Exception as e:
             print(f"Error processing {ticker}: {e}")
             continue
 
-    # Use fillna(0) to align assets; dropna() often returns empty if dates don't match 100%
     df_p = pd.DataFrame(all_preds).fillna(0)
     if df_p.empty: 
         return None
@@ -124,25 +121,20 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
 
     for d in common_idx:
         dp = df_p.loc[d]
-        # Calculate confidence (Z-score)
         z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
         
-        # Stop-loss/Recovery Logic
         hwm = max(hwm, equity)
         drawdown = (equity - hwm) / hwm
         if drawdown <= -stop_loss_pct: in_timeout = True 
         if in_timeout and z_score >= recovery_sigma: in_timeout = False
         
-        # Signal determination
         raw_sig = dp.idxmax() if dp.max() > 0.0001 else "CASH"
         final_sig = "CASH" if in_timeout else raw_sig
         
-        # Transaction Costs
         if final_sig != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = final_sig
             
-        # Daily Return calculation
         if current_asset == "CASH":
             day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252
         else:
@@ -151,28 +143,25 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         equity *= (1 + day_r)
         rets.append(day_r); hist.append(current_asset); confs.append(z_score)
 
-    # Note: Make sure to return your results dictionary after the loop finishes.
-
-   # --- FINAL RECTIFIED DATA ALIGNMENT (ALL METRICS + GRAPH) ---
+    # --- FINAL RECTIFIED DATA ALIGNMENT ---
     res = pd.DataFrame(index=common_idx)
     res.index = pd.to_datetime(res.index)
     res["Equity"] = (np.array(rets) + 1).cumprod() * 100
     res["Strategy_Ret"] = rets
-    
-    # Calculate Drawdown for the c3/c4 metrics
     res["Drawdown"] = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
-    
-    # Restore RF for Sharpe Calculation
     res["RF"] = (raw_df.loc[common_idx, "TBILL_3M"] / 100) / 252
-    
-    # Map Benchmarks
     res["SPY"] = (raw_df.loc[common_idx, "SPY_Ret"] + 1).cumprod() * 100
     res["AGG"] = (raw_df.loc[common_idx, "AGG_Ret"] + 1).cumprod() * 100
     
     res = res.dropna()
     
-    return {"df": res, "audit": pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx), 
-            "target": hist[-1], "conf": confs[-1], "date": common_idx[-1].strftime('%Y-%m-%d')}
+    return {
+        "df": res, 
+        "audit": pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx), 
+        "target": str(hist[-1]), 
+        "conf": float(confs[-1]), 
+        "date": common_idx[-1].strftime('%Y-%m-%d')
+    }
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -199,47 +188,29 @@ if out:
     st.markdown(f"""<div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;"><p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction for NYSE: {get_next_trading_day_simple()}</p><h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out['target']}</h1><p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Current Z-Score: {out['conf']:.2f}σ</p></div>""", unsafe_allow_html=True)
     
     c1, c2, c3, c4, c5 = st.columns(5)
-    ann_ret = (df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1
+    ann_ret = float((df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1)
     c1.metric("Annual Return", f"{ann_ret:.2%}")
-    sharpe = ((df['Strategy_Ret']-df['RF']).mean()/df['Strategy_Ret'].std())*np.sqrt(252)
+    sharpe = float(((df['Strategy_Ret']-df['RF']).mean()/df['Strategy_Ret'].std())*np.sqrt(252))
     c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-    c3.metric("Max DD (P/T)", f"{df['Drawdown'].min():.2%}")
+    c3.metric("Max DD (P/T)", f"{float(df['Drawdown'].min()):.2%}")
     with c4:
-        st.metric("Max DD (Daily)", f"{df['Strategy_Ret'].min():.2%}")
-        st.markdown(f'<p class="metric-sub">Worst: <b>{df["Strategy_Ret"].min():.2%}</b> on {df["Strategy_Ret"].idxmin().strftime("%Y-%m-%d")}</p>', unsafe_allow_html=True)
+        st.metric("Max DD (Daily)", f"{float(df['Strategy_Ret'].min()):.2%}")
+        st.markdown(f'<p class="metric-sub">Worst: <b>{float(df["Strategy_Ret"].min()):.2%}</b> on {df["Strategy_Ret"].idxmin().strftime("%Y-%m-%d")}</p>', unsafe_allow_html=True)
     with c5:
-        hit_ratio_15d = (df["Strategy_Ret"].tail(15) > 0).mean()
+        hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
         st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
         st.markdown(f'<p class="metric-sub">Last 15 Trading Sessions</p>', unsafe_allow_html=True)
 
     st.subheader("OOS Cumulative Return")
     fig = go.Figure()
 
-    # Explicitly map x to df.index to stop the diagonal line
-    fig.add_trace(go.Scatter(
-        x=df.index, 
-        y=df["Equity"], 
-        name="P2 Strategy", 
-        line=dict(color='#1a73e8', width=3)
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=df.index, 
-        y=df["SPY"], 
-        name="SPY Bench", 
-        line=dict(color='#718096', dash='dot')
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=df.index, 
-        y=df["AGG"], 
-        name="AGG Bench", 
-        line=dict(color='#e53e3e', dash='dot')
-    ))
+    fig.add_trace(go.Scatter(x=df.index, y=df["Equity"], name="P2 Strategy", line=dict(color='#1a73e8', width=3)))
+    fig.add_trace(go.Scatter(x=df.index, y=df["SPY"], name="SPY Bench", line=dict(color='#718096', dash='dot')))
+    fig.add_trace(go.Scatter(x=df.index, y=df["AGG"], name="AGG Bench", line=dict(color='#e53e3e', dash='dot')))
 
     fig.update_layout(
         template="plotly_white",
-        xaxis=dict(type='date', tickformat='%Y-%m'), # Force Date formatting
+        xaxis=dict(type='date', tickformat='%Y-%m'),
         height=500,
         margin=dict(l=0,r=0,t=10,b=0),
         legend=dict(orientation="h", y=1.1, x=1, xanchor='right')
@@ -251,19 +222,13 @@ if out:
     audit_df.index = audit_df.index.strftime('%Y-%m-%d')
     st.dataframe(audit_df.style.applymap(lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038', subset=['Return']).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}), use_container_width=True)
 
-    # --- FULL METHODOLOGY FOOTER ---
     methodologies = {
-        "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR. Wavelet transform captures mid-term momentum shifts.",
-        "Option B": "Hybrid RL-Supervised model using PPO for high-probability entry windows.",
-        "Option C": "Advantage Actor-Critic (A2C) optimizing allocation as a continuous policy.",
-        "Option D": "SVR-A2C Ensemble weighting predictions by agent conviction scores.",
-        "Option E": "Bayesian state-space filtering for defensive regime detection.",
-        "Option F": "Hidden Markov Model (HMM) for latent regime classification.",
-        "Option G": "HMM-Biased SVR that adjusts conviction parameters based on market state.",
-        "Option H": "Bayesian-Denoised SVR applying shrinkage priors to wavelet coefficients.",
-        "Option I": "CNN-LSTM Deep Learning for spatial and temporal feature extraction.",
-        "Option J": "Attention-Augmented CNN-LSTM focusing on relevant frequency bands.",
-        "Option K": "Parallel Dual-Stream Deep Fusion incorporating macro-economic vectors."
+        "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR.",
+        "Option B": "Hybrid RL-Supervised model using PPO.",
+        "Option C": "Advantage Actor-Critic (A2C) policy optimization.",
+        "Option G": "HMM-Biased SVR adjusting conviction by market state.",
+        "Option I": "CNN-LSTM Deep Learning for feature extraction.",
+        "Option K": "Parallel Dual-Stream Deep Fusion with macro vectors."
     }
     method_key = opt.split("-")[0].strip() if "-" in opt else opt.split(":")[0].strip()
     st.divider()
