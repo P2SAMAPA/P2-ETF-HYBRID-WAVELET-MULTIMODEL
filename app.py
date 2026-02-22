@@ -14,8 +14,10 @@ st.markdown("""
     <style>
     .main { background-color: #ffffff; }
     div[data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; }
-    [data-testid="stMetricValue"] { color: #1a73e8 !important; font-size: 22px !important; }
-    [data-testid="stMetricLabel"] { font-weight: 700; text-transform: uppercase; font-size: 10px; color: #5f6368 !important; }
+    [data-testid="stMetricValue"] { color: #1a73e8 !important; font-size: 24px !important; font-weight: 700 !important; }
+    [data-testid="stMetricLabel"] { font-weight: 700; text-transform: uppercase; font-size: 11px; color: #5f6368 !important; }
+    .metric-sub { font-size: 12px; color: #70757a; margin-top: -12px; font-weight: 500; }
+    .metric-sub b { color: #d93025; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -27,6 +29,7 @@ def get_next_trading_day_simple():
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, _force_sync=False):
+    # Data load with explicit sync check to prevent infinite loop
     raw_df = load_raw_data(force_sync=_force_sync)
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
     
@@ -43,6 +46,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             m_oos, m_is = idx.year >= start_yr, idx.year < start_yr
             
+            # Engine selection logic
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 eng = DeepHybridEngine(mode=model_choice)
                 oos_indices = np.where(m_oos)[0]
@@ -58,7 +62,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 hmm = RegimeHMM(); hmm.train_and_assign(raw_df.loc[idx[m_is]], assets)
                 macro_oos = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].diff().loc[idx[m_oos]].fillna(0)
                 raw_svr = eng.predict_series(X[m_oos])
-                preds = [raw_svr[i] * 1.1 if hmm.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i in range(len(macro_oos))]
+                preds = [raw_svr[i] * 1.15 if hmm.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i in range(len(macro_oos))]
             elif any(opt in model_choice for opt in ["Option E", "Option H"]):
                 eng = MomentumEngine(); eng.train(X[m_is], y[m_is]); bf = BayesianFilter()
                 conf_vec = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]])
@@ -76,6 +80,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
     if df_p.empty: return None
     common_idx = df_p.index
     
+    # Core Strategy Logic
     equity, current_asset, hwm, in_timeout = 100.0, "CASH", 100.0, False
     rets, hist, confs = [], [], []
 
@@ -99,6 +104,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         equity *= (1 + day_r)
         rets.append(day_r); hist.append(current_asset); confs.append(conf_display)
 
+    # DataFrame assembly for Plotly/UI
     res = pd.DataFrame(index=common_idx)
     res["Equity"] = (np.array(rets) + 1).cumprod() * 100
     res["Strategy_Ret"] = rets
@@ -126,36 +132,53 @@ with st.sidebar:
     rec_sigma = st.slider("Recovery Threshold (Sigma)", 1.0, 2.0, 1.4, 0.1)
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
-# --- EXECUTION ---
+# --- UI EXECUTION ---
 out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma)
 if out:
     df = out["df"]
     st.title("P2 Wavelet Multi-Model")
+    
+    # Prediction Header
     st.markdown(f"""<div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;"><p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction for NYSE: {get_next_trading_day_simple()}</p><h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out['target']}</h1><p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Conviction: {out['conf']:.1%}</p></div>""", unsafe_allow_html=True)
     
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    # --- PROFESSIONAL METRICS ROW (5 COLUMNS) ---
+    c1, c2, c3, c4, c5 = st.columns(5)
+    
     ann_ret = (df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1
-    m1.metric("Annual Return", f"{ann_ret:.2%}")
-    m2.metric("Sharpe Ratio", f"{((df['Strategy_Ret']-df['RF']).mean()/df['Strategy_Ret'].std())*np.sqrt(252):.2f}")
-    m3.metric("Max DD (P/T)", f"{df['Drawdown'].min():.2%}")
-    m4.metric("Volatility", f"{df['Strategy_Ret'].std()*np.sqrt(252):.2%}")
-    m5.metric("Worst Day", f"{df['Strategy_Ret'].min():.2%}")
-    m6.metric("Worst Date", df["Strategy_Ret"].idxmin().strftime('%Y-%m-%d'))
+    c1.metric("Annual Return", f"{ann_ret:.2%}")
+    
+    sharpe = ((df['Strategy_Ret']-df['RF']).mean()/df['Strategy_Ret'].std())*np.sqrt(252)
+    c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
+    
+    c3.metric("Max DD (P/T)", f"{df['Drawdown'].min():.2%}")
+    
+    with c4:
+        st.metric("Max DD (Daily)", f"{df['Strategy_Ret'].min():.2%}")
+        # Nesting Worst Event and Date below
+        st.markdown(f'<p class="metric-sub">Worst: <b>{df["Strategy_Ret"].min():.2%}</b> on {df["Strategy_Ret"].idxmin().strftime("%Y-%m-%d")}</p>', unsafe_allow_html=True)
+        
+    with c5:
+        # Restoration of Hit Ratio (15D)
+        hit_ratio_15d = (df["Strategy_Ret"].tail(15) > 0).mean()
+        st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
+        st.markdown(f'<p class="metric-sub">Last 15 Trading Sessions</p>', unsafe_allow_html=True)
 
+    # Cumulative Chart
     st.subheader("OOS Cumulative Return")
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df.index, y=df["Equity"], name="P2 Strategy", line=dict(color='#1a73e8', width=3)))
-    fig.add_trace(go.Scatter(x=df.index, y=df["SPY"], name="SPY", line=dict(color='#718096', dash='dot')))
-    fig.add_trace(go.Scatter(x=df.index, y=df["AGG"], name="AGG", line=dict(color='#e53e3e', dash='dot')))
+    fig.add_trace(go.Scatter(x=df.index, y=df["SPY"], name="SPY Bench", line=dict(color='#718096', dash='dot')))
+    fig.add_trace(go.Scatter(x=df.index, y=df["AGG"], name="AGG Bench", line=dict(color='#e53e3e', dash='dot')))
     fig.update_layout(template="plotly_white", xaxis_type='date', height=500, margin=dict(l=0,r=0,t=10,b=0), legend=dict(orientation="h", y=1.1, x=1, xanchor='right'))
     st.plotly_chart(fig, use_container_width=True)
 
+    # Audit Trail
     st.subheader("15-Day Audit Trail")
     audit_df = out["audit"].tail(15).copy()
     audit_df.index = audit_df.index.strftime('%Y-%m-%d')
-    st.dataframe(audit_df.style.applymap(lambda v: 'color: red' if v < 0 else 'color: green', subset=['Return']).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}), use_container_width=True)
+    st.dataframe(audit_df.style.applymap(lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038', subset=['Return']).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}), use_container_width=True)
 
-    # --- METHODOLOGY FOOTER (RESTORED) ---
+    # Methodology Footer
     methodologies = {
         "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR. Wavelet transform captures mid-term momentum shifts.",
         "Option B": "Hybrid RL-Supervised model using PPO for high-probability entry windows.",
