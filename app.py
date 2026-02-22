@@ -194,19 +194,29 @@ with st.sidebar:
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
 # --- UI EXECUTION ---
+# Running the backtest engine with UI parameters
 out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma)
 
-if out:
+# Check if 'out' exists and contains data to prevent the blank screen (whiteout)
+if out and isinstance(out, dict) and "df" in out and not out["df"].empty:
     df = out["df"]
     st.title("P2 Wavelet Multi-Model")
+    
+    # Safely extracting values using .get() to handle potential missing keys or None values
+    target_asset = out.get('target', 'CASH')
+    confidence_score = out.get('conf', 0.0)
     
     st.markdown(f"""
         <div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
             <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction for NYSE: {get_next_trading_day_simple()}</p>
-            <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out['target']}</h1>
-            <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Current Z-Score: {out['conf']:.2f}σ</p>
+            <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{target_asset}</h1>
+            <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Current Z-Score: {float(confidence_score):.2f}σ</p>
         </div>
     """, unsafe_allow_html=True)
+else:
+    # Explicit error handling for the UI to show why the screen is otherwise blank
+    st.error("Model Engine Offline or No Data Generated.")
+    st.info("Check if the selected Start Year has sufficient historical data or if model files are missing from the /models directory.")
     
     c1, c2, c3, c4, c5 = st.columns(5)
     ann_ret = float((df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1)
