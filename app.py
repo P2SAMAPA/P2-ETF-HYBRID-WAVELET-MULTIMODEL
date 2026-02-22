@@ -207,10 +207,6 @@ if out:
             <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Current Z-Score: {out['conf']:.2f}σ</p>
         </div>
     """, unsafe_allow_html=True)
-else:
-    # Explicit error handling for the UI to show why the screen is otherwise blank
-    st.error("Model Engine Offline or No Data Generated.")
-    st.info("Check if the selected Start Year has sufficient historical data or if model files are missing from the /models directory.")
     
     c1, c2, c3, c4, c5 = st.columns(5)
     ann_ret = float((df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1)
@@ -266,6 +262,7 @@ else:
     st.divider()
     st.markdown(f"### Methodology: {opt}")
     st.write(methodologies.get(method_key, "Wavelet-based multi-resolution analysis."))
-    st.info(f"⚠️ **Risk Policy:** Trailing Stop Loss at {sl_input:.1%}. Recovery requires Z-Score > {rec_sigma}.")
+    st.info(f"⚠️ **Risk Policy:** Trailing Stop Loss at {sl_input*100:.1f}%. Recovery requires Z-Score > {rec_sigma}.")
+
 else:
     st.error("Model failure. Check Start Year or data source.")
