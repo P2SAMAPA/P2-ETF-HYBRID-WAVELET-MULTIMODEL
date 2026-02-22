@@ -27,7 +27,7 @@ def get_next_trading_day_simple():
     next_day = now + timedelta(days=days_ahead)
     return next_day.strftime('%d %B %Y')
 
-@st.cache_data(ttl=3600, show_spinner=False)
+# @st.cache_data(ttl=3600, show_spinner=False)  <-- Commented out to allow live debugging
 def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, _force_sync=False, _log=None):
     # Internal helper to update the UI Heartbeat
     def logger(msg):
