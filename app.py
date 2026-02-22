@@ -308,12 +308,12 @@ try:
 
         # 1. Strategy Line (Primary)
         if "Equity" in df.columns:
-        fig.add_trace(go.Scatter(
-        x=df.index, 
-        y=df["Equity"], 
-        name="P2 Strategy", 
-        line=dict(color='#1a73e8', width=3)
-        ))
+            fig.add_trace(go.Scatter(
+            x=df.index, 
+            y=df["Equity"], 
+            name="P2 Strategy", 
+            line=dict(color='#1a73e8', width=3)
+            ))
 
         # 2. Benchmarks (Normalized & Holiday-Safe)
         # We loop through the benchmarks to keep the code clean and prevent KeyErrors
