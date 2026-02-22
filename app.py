@@ -175,7 +175,19 @@ with st.sidebar:
         st.rerun()
     
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
-    opt = st.radio("Intelligence Engine", ["Option A- Wavelet-SVR", "Option B-Wavelet-SVR-PPO", "Option C: Wavelet-A2C", "Option D: Wavelet-SVR-A2C", "Option E: Wavelet-Bayesian-Regime", "Option F: Wavelet-HMM", "Option G- Wavelet-SVR-HMM", "Option H: Wavelet-SVR-Bayesian", "Option I: Wavelet- CNN-LSTM", "Option J: Wavelet-Attention-CNN-LSTM", "Option K- Wavelet- Parallel-Dual-Stream-CNN-LSTM"])
+    opt = st.radio("Intelligence Engine", [
+        "Option A- Wavelet-SVR", 
+        "Option B-Wavelet-SVR-PPO", 
+        "Option C: Wavelet-A2C", 
+        "Option D: Wavelet-SVR-A2C", 
+        "Option E: Wavelet-Bayesian-Regime", 
+        "Option F: Wavelet-HMM", 
+        "Option G- Wavelet-SVR-HMM", 
+        "Option H: Wavelet-SVR-Bayesian", 
+        "Option I: Wavelet- CNN-LSTM", 
+        "Option J: Wavelet-Attention-CNN-LSTM", 
+        "Option K- Wavelet- Parallel-Dual-Stream-CNN-LSTM"
+    ])
     st.subheader("Risk Gate Controls")
     sl_input = st.slider("Trailing Stop Loss (%)", 8.0, 20.0, 18.0, 0.5) / 100
     rec_sigma = st.slider("Recovery Threshold (Sigma)", 1.0, 2.0, 1.4, 0.1)
@@ -183,21 +195,31 @@ with st.sidebar:
 
 # --- UI EXECUTION ---
 out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma)
+
 if out:
     df = out["df"]
     st.title("P2 Wavelet Multi-Model")
     
-    st.markdown(f"""<div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;"><p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction for NYSE: {get_next_trading_day_simple()}</p><h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out['target']}</h1><p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Current Z-Score: {out['conf']:.2f}σ</p></div>""", unsafe_allow_html=True)
+    st.markdown(f"""
+        <div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
+            <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction for NYSE: {get_next_trading_day_simple()}</p>
+            <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out['target']}</h1>
+            <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Current Z-Score: {out['conf']:.2f}σ</p>
+        </div>
+    """, unsafe_allow_html=True)
     
     c1, c2, c3, c4, c5 = st.columns(5)
     ann_ret = float((df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1)
-    c1.metric("Annual Return", f"{ann_ret:.2%}")
     sharpe = float(((df['Strategy_Ret']-df['RF']).mean()/df['Strategy_Ret'].std())*np.sqrt(252))
+    
+    c1.metric("Annual Return", f"{ann_ret:.2%}")
     c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
     c3.metric("Max DD (P/T)", f"{float(df['Drawdown'].min()):.2%}")
+    
     with c4:
         st.metric("Max DD (Daily)", f"{float(df['Strategy_Ret'].min()):.2%}")
         st.markdown(f'<p class="metric-sub">Worst: <b>{float(df["Strategy_Ret"].min()):.2%}</b> on {df["Strategy_Ret"].idxmin().strftime("%Y-%m-%d")}</p>', unsafe_allow_html=True)
+    
     with c5:
         hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
         st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
@@ -205,7 +227,6 @@ if out:
 
     st.subheader("OOS Cumulative Return")
     fig = go.Figure()
-
     fig.add_trace(go.Scatter(x=df.index, y=df["Equity"], name="P2 Strategy", line=dict(color='#1a73e8', width=3)))
     fig.add_trace(go.Scatter(x=df.index, y=df["SPY"], name="SPY Bench", line=dict(color='#718096', dash='dot')))
     fig.add_trace(go.Scatter(x=df.index, y=df["AGG"], name="AGG Bench", line=dict(color='#e53e3e', dash='dot')))
@@ -222,15 +243,20 @@ if out:
     st.subheader("15-Day Audit Trail")
     audit_df = out["audit"].tail(15).copy()
     audit_df.index = audit_df.index.strftime('%Y-%m-%d')
-    st.dataframe(audit_df.style.applymap(lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038', subset=['Return']).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}), use_container_width=True)
+    st.dataframe(audit_df.style.map(lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038', subset=['Return']).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}), use_container_width=True)
 
     methodologies = {
-        "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR.",
-        "Option B": "Hybrid RL-Supervised model using PPO.",
-        "Option C": "Advantage Actor-Critic (A2C) policy optimization.",
-        "Option G": "HMM-Biased SVR adjusting conviction by market state.",
-        "Option I": "CNN-LSTM Deep Learning for feature extraction.",
-        "Option K": "Parallel Dual-Stream Deep Fusion with macro vectors."
+        "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR. Wavelet transform captures mid-term momentum shifts.",
+        "Option B": "Hybrid RL-Supervised model using PPO for high-probability entry windows.",
+        "Option C": "Advantage Actor-Critic (A2C) optimizing allocation as a continuous policy.",
+        "Option D": "SVR-A2C Ensemble weighting predictions by agent conviction scores.",
+        "Option E": "Bayesian state-space filtering for defensive regime detection.",
+        "Option F": "Hidden Markov Model (HMM) for latent regime classification.",
+        "Option G": "HMM-Biased SVR that adjusts conviction parameters based on market state.",
+        "Option H": "Bayesian-Denoised SVR applying shrinkage priors to wavelet coefficients.",
+        "Option I": "CNN-LSTM Deep Learning for spatial and temporal feature extraction.",
+        "Option J": "Attention-Augmented CNN-LSTM focusing on relevant frequency bands.",
+        "Option K": "Parallel Dual-Stream Deep Fusion incorporating macro-economic vectors."
     }
     method_key = opt.split("-")[0].strip() if "-" in opt else opt.split(":")[0].strip()
     st.divider()
