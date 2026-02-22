@@ -48,6 +48,9 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
             
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 eng = DeepHybridEngine(mode=model_choice)
+                # Map the UI choice to the correct file you saved
+                model_map = {"Option I": "opt_i_cnn.h5", "Option J": "opt_j_cnn_lstm.h5", "Option K": "opt_k_hybrid.h5"}
+                eng.load(f"models/{model_map[model_choice]}")
                 oos_indices = np.where(m_oos)[0]
                 X_3d = np.array([np.vstack([np.repeat(X[0:1], 20-len(X[max(0, i-19):i+1]), axis=0), X[max(0, i-19):i+1]]) for i in oos_indices])
                 X_macro = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].values if "Option K" in model_choice else None
