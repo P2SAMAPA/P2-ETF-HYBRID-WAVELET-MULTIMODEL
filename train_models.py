@@ -7,7 +7,10 @@ from data.processor import build_feature_matrix
 from engine import DeepHybridEngine, MomentumEngine
 
 def train_and_save_all():
-    # 1. Ensure models directory exists
+    # 1. Clear old models and ensure directory exists fresh
+    import shutil
+    if os.path.exists("models"):
+        shutil.rmtree("models")
     os.makedirs("models", exist_ok=True)
     
     # 2. Setup environment for the loader
