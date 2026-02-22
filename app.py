@@ -288,10 +288,10 @@ try:
         else:
             sharpe = 0.0
 
-# 3. Render Metrics
-c1.metric("Annual Return", f"{ann_ret:.2%}")
-c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-c3.metric("Max DD (P/T)", f"{float(df['Drawdown'].min()):.2%}")
+        # 3. Render Metrics
+        c1.metric("Annual Return", f"{ann_ret:.2%}")
+        c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
+        c3.metric("Max DD (P/T)", f"{float(df['Drawdown'].min()):.2%}")
             
             with c4:
                 st.metric("Max DD (Daily)", f"{float(df['Strategy_Ret'].min()):.2%}")
