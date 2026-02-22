@@ -187,10 +187,32 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     res["SPY"] = (raw_df.loc[common_idx, "SPY_Ret"] + 1).cumprod() * 100
     
     logger("✅ Analysis Complete!")
+   # --- RECTIFIED RESULT PACKAGING ---
+    res = pd.DataFrame(index=common_idx)
+    res["Strategy_Ret"] = rets
+    res["Equity"] = (pd.Series(rets) + 1).cumprod().values * 100
+    res["Drawdown"] = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
+    
+    # Use ffill to prevent KeyError/NaN crashes on market holidays (Jan 1st)
+    if "SPY" in raw_df.columns:
+        res["SPY"] = (raw_df.loc[common_idx, "SPY"].ffill() / raw_df.loc[common_idx, "SPY"].ffill().iloc[0]) * 100
+    if "AGG" in raw_df.columns:
+        res["AGG"] = (raw_df.loc[common_idx, "AGG"].ffill() / raw_df.loc[common_idx, "AGG"].ffill().iloc[0]) * 100
+
+    # Build the Audit DataFrame with the correct column name 'Return'
+    audit_df = pd.DataFrame({
+        "Allocation": hist, 
+        "Return": rets,       # Mapping 'rets' to 'Return' to satisfy the UI styler
+        "Z-Score": confs
+    }, index=common_idx)
+    
+    logger("✅ Analysis Complete!")
     return {
-        "df": res.ffill().bfill(), 
-        "audit": pd.DataFrame({"Allocation": hist, "Z-Score": confs}, index=common_idx), 
-        "target": str(hist[-1]), "conf": float(confs[-1]), "date": common_idx[-1].strftime('%Y-%m-%d')
+        "df": res.ffill().fillna(100.0), 
+        "audit": audit_df, 
+        "target": str(hist[-1]), 
+        "conf": float(confs[-1]), 
+        "date": common_idx[-1].strftime('%Y-%m-%d')
     }
 # --- SIDEBAR ---
 with st.sidebar:
