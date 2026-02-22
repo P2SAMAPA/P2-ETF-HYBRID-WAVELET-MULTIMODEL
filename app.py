@@ -65,11 +65,19 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 macro_oos = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].diff().loc[idx[m_oos]].fillna(0)
                 raw_svr = eng.predict_series(X[m_oos])
                 preds = [raw_svr[i] * 1.15 if hmm.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i in range(len(macro_oos))]
-            elif any(opt in model_choice for opt in ["Option E", "Option H"]):
-                eng = MomentumEngine(); eng.load("models/svr_momentum_poly.pkl")
+            elif "Option H" in model_choice:
+                # Option H uses SVR + Bayesian, so we LOAD the SVR weights
+                eng = MomentumEngine()
+                eng.load("models/svr_momentum_poly.pkl")
+                bf = BayesianFilter()
                 conf_vec = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]])
-                target_len = np.sum(m_oos)
-                preds = eng.predict_series(X[m_oos]) * conf_vec.values[-target_len:]
+                preds = eng.predict_series(X[m_oos]) * conf_vec.values[-np.sum(m_oos):]
+                
+            elif "Option E" in model_choice:
+                # Option E is just Bayesian-Regime; no SVR engine needed
+                bf = BayesianFilter()
+                # Assuming Option E uses the confidence score as the direct prediction
+                preds = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]]).values[-np.sum(m_oos):]
             elif "Option C" in model_choice:
                 eng = A2CEngine()
                 eng.load("models/a2c_weights.pkl") # Ensure your trainer saves this name
