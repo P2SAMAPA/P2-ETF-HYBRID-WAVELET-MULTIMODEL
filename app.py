@@ -52,7 +52,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         print(f"HMM Training failed: {e}")
         hmm_model = None
 
-    all_preds = {}
+   all_preds = {}
     for ticker in assets:
         try:
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
@@ -102,7 +102,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 eng.load("models/a2c_weights.pkl")
                 preds = eng.predict_series(X[m_oos])
 
-           else:
+            else:
                 eng = MomentumEngine()
                 eng.load("models/svr_momentum_poly.pkl")
                 preds = eng.predict_series(X[m_oos])
