@@ -74,7 +74,7 @@ class DeepHybridEngine:
             self.is_trained = True
 
 # ---------------------------------------------------------------------------
-# SVR & RL ENGINES (A B C D)
+# SVR & RL ENGINES (Options, A, B, C, D)
 # ---------------------------------------------------------------------------
 class MomentumEngine:
     def __init__(self, c_param=700.0, degree=3):
