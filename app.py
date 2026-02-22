@@ -293,11 +293,11 @@ try:
         c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
         c3.metric("Max DD (P/T)", f"{float(df['Drawdown'].min()):.2%}")
             
-            with c4:
+        with c4:
                 st.metric("Max DD (Daily)", f"{float(df['Strategy_Ret'].min()):.2%}")
                 st.markdown(f'<p class="metric-sub">Worst: <b>{float(df["Strategy_Ret"].min()):.2%}</b> on {df["Strategy_Ret"].idxmin().strftime("%Y-%m-%d")}</p>', unsafe_allow_html=True)
             
-            with c5:
+        with c5:
                 hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
                 st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
                 st.markdown(f'<p class="metric-sub">Last 15 Trading Sessions</p>', unsafe_allow_html=True)
