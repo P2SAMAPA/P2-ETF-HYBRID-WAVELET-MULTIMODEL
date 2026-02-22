@@ -29,7 +29,12 @@ def get_next_trading_day_simple():
 
 @st.cache_data(ttl=3600, show_spinner=False)
 @st.cache_data(ttl=3600, show_spinner=False)
-def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, _force_sync=False):
+def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, _force_sync=False, _log=None):
+    # Internal helper to update the UI Heartbeat
+    def logger(msg):
+        if _log: _log.write(msg)
+
+    logger("📡 Step 1: Loading raw market data and risk-free rates...")
     raw_df = load_raw_data(force_sync=_force_sync)
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
     
@@ -42,31 +47,33 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
 
     # --- HMM Training ---
     hmm_model = None
-    try:
-        _, _, idx_ref, _ = build_feature_matrix(raw_df, target_col="TLT")
-        m_is_ref = idx_ref.year < start_yr
-        if "Option F" in model_choice or "Option G" in model_choice:
+    if "Option F" in model_choice or "Option G" in model_choice:
+        logger("🧠 Step 2: Training Hidden Markov Model (HMM) on historical regimes...")
+        try:
+            _, _, idx_ref, _ = build_feature_matrix(raw_df, target_col="TLT")
+            m_is_ref = idx_ref.year < start_yr
             hmm_model = RegimeHMM()
             hmm_model.train_and_assign(raw_df.loc[idx_ref[m_is_ref]], assets)
-    except Exception:
-        hmm_model = None
+        except Exception as e:
+            logger(f"⚠️ HMM Training failed: {e}")
+            hmm_model = None
 
     all_preds = {}
+    logger(f"🤖 Step 3: Generating signals using {model_choice}...")
+    
     for ticker in assets:
         try:
+            logger(f"   -> Processing intelligence stream for {ticker}...")
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             m_oos = idx.year >= start_yr
             
-            # RECTIFIED: Exact string matching for Options I, J, K to fix 'Model Failure'
             if "Option I" in model_choice or "Option J" in model_choice or "Option K" in model_choice:
                 eng = DeepHybridEngine(mode=model_choice)
-                # Map keys to match the radio button labels exactly
                 model_map = {
                     "Option I: Wavelet- CNN-LSTM": "opt_i_cnn.h5",
                     "Option J: Wavelet-Attention-CNN-LSTM": "opt_j_cnn_lstm.h5",
                     "Option K- Wavelet- Parallel-Dual-Stream-CNN-LSTM": "opt_k_hybrid.h5"
                 }
-                # Fallback mapping if exact match fails
                 fname = model_map.get(model_choice, "opt_i_cnn.h5")
                 eng.load(f"models/{fname}")
                 
@@ -93,12 +100,10 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                     preds = raw_svr
 
             elif "Option H" in model_choice or "Option E" in model_choice:
-                # RECTIFIED: Fixed the '.values' crash for Bayesian Filter
                 eng = MomentumEngine()
                 eng.load("models/svr_momentum_poly.pkl")
                 bf = BayesianFilter()
                 conf_data = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]])
-                # Handle both Series and Numpy returns safely
                 conf_vals = conf_data.values if hasattr(conf_data, 'values') else conf_data
                 
                 if "Option H" in model_choice:
@@ -119,11 +124,14 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
             all_preds[ticker] = pd.Series(preds, index=idx[m_oos])
             
         except Exception as e:
-            print(f"Log: Error processing {ticker} for {model_choice}: {e}")
+            logger(f"❌ Error on {ticker}: {e}")
             continue
 
+    logger("📈 Step 4: Running Portfolio Simulation & Stop-Loss logic...")
     df_p = pd.DataFrame(all_preds).fillna(0)
-    if df_p.empty: return None
+    if df_p.empty: 
+        logger("🚨 Simulation Error: All prediction streams returned empty.")
+        return None
     
     common_idx = df_p.index
     equity, current_asset, hwm, in_timeout = 100.0, "CASH", 100.0, False
@@ -137,7 +145,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         if drawdown <= -stop_loss_pct: in_timeout = True 
         if in_timeout and z_score >= recovery_sigma: in_timeout = False
         
-        # RECTIFIED: Capture all signals > 0 to avoid 'Always CASH'
         raw_sig = dp.idxmax() if dp.max() > 0 else "CASH"
         final_sig = "CASH" if in_timeout else raw_sig
         
@@ -149,6 +156,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         equity *= (1 + day_r)
         rets.append(day_r); hist.append(current_asset); confs.append(z_score)
 
+    logger("📊 Step 5: Finalizing metrics and Audit Trail...")
     res = pd.DataFrame(index=common_idx)
     res["Equity"] = (np.array(rets) + 1).cumprod() * 100
     res["Strategy_Ret"] = rets
