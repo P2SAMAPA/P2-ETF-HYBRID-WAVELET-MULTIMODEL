@@ -22,9 +22,11 @@ def train_and_save_all():
     print("Downloading data from Hugging Face...")
     df = load_raw_data(force_sync=False)
     
+    # Note the ', _' which catches the status message and prevents the error
+    df, _ = load_raw_data() 
     if df.empty:
-        print("❌ Error: Loaded DataFrame is empty. Check HF_TOKEN and FRED_API_KEY.")
-        return
+    print("❌ Error: Loaded DataFrame is empty. Check HF_TOKEN and FRED_API_KEY.")
+    return
 
     # 4. Build features using your processor.py
     print(f"Processing features for {len(df)} rows...")
