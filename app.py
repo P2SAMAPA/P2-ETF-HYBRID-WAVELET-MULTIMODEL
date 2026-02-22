@@ -320,12 +320,12 @@ try:
         for bench, color in [("SPY", "#718096"), ("AGG", "#e53e3e")]:
             if bench in df.columns:
             # ffill handles holidays like Jan 1st; dropna finds the first valid trading day for normalization
-            bench_series = df[bench].ffill() 
-            first_valid = bench_series.dropna().iloc[0] if not bench_series.dropna().empty else None
+                bench_series = df[bench].ffill() 
+                first_valid = bench_series.dropna().iloc[0] if not bench_series.dropna().empty else None
         
             if first_valid:
             # Normalize to 1.0 to match the Strategy Equity curve
-            normalized_bench = bench_series / first_valid
+                normalized_bench = bench_series / first_valid
             
             fig.add_trace(go.Scatter(
                 x=df.index, 
