@@ -41,7 +41,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
 
     # --- Pre-calculate HMM training once for all assets ---
     hmm_model = None
-    # We use TLT as a proxy to get the date indices for training (m_is)
     try:
         _, _, idx_ref, _ = build_feature_matrix(raw_df, target_col="TLT")
         m_is_ref = idx_ref.year < start_yr
@@ -107,45 +106,52 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 eng.load("models/svr_momentum_poly.pkl")
                 preds = eng.predict_series(X[m_oos])
 
-            # 1. Store results inside the TRY block
+            # Store results inside the TRY block
             all_preds[ticker] = pd.Series(preds, index=idx[m_oos])
             
         except Exception as e:
-            # 2. Align this EXACTLY with the 'try' keyword
             print(f"Error processing {ticker}: {e}")
             continue
 
-    # 3. Move this OUTSIDE the loop (back to 4 spaces indentation)
-    df_p = pd.DataFrame(all_preds).dropna()
+    # Use fillna(0) to align assets; dropna() often returns empty if dates don't match 100%
+    df_p = pd.DataFrame(all_preds).fillna(0)
     if df_p.empty: 
         return None
     
-    # 4. Continue with your backtest logic
     common_idx = df_p.index
-    equity, current_asset, hwm, in_timeout = 100.0, "CASH", 100.0, False
-    # ... (rest of code)
-    
     equity, current_asset, hwm, in_timeout = 100.0, "CASH", 100.0, False
     rets, hist, confs = [], [], []
 
     for d in common_idx:
         dp = df_p.loc[d]
+        # Calculate confidence (Z-score)
         z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
         
+        # Stop-loss/Recovery Logic
         hwm = max(hwm, equity)
         drawdown = (equity - hwm) / hwm
         if drawdown <= -stop_loss_pct: in_timeout = True 
         if in_timeout and z_score >= recovery_sigma: in_timeout = False
         
+        # Signal determination
         raw_sig = dp.idxmax() if dp.max() > 0.0001 else "CASH"
         final_sig = "CASH" if in_timeout else raw_sig
         
+        # Transaction Costs
         if final_sig != current_asset:
-            equity *= (1 - t_cost_pct); current_asset = final_sig
+            equity *= (1 - t_cost_pct)
+            current_asset = final_sig
             
-        day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252 if current_asset == "CASH" else raw_df.loc[d, f"{current_asset}_Ret"]
+        # Daily Return calculation
+        if current_asset == "CASH":
+            day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252
+        else:
+            day_r = raw_df.loc[d, f"{current_asset}_Ret"]
+            
         equity *= (1 + day_r)
         rets.append(day_r); hist.append(current_asset); confs.append(z_score)
+
+    # Note: Make sure to return your results dictionary after the loop finishes.
 
    # --- FINAL RECTIFIED DATA ALIGNMENT (ALL METRICS + GRAPH) ---
     res = pd.DataFrame(index=common_idx)
