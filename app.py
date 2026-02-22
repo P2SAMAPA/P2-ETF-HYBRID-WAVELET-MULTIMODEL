@@ -39,41 +39,42 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
     t_cost_pct = t_costs_bps / 10_000
     from data.processor import build_feature_matrix
 
+    # --- Pre-calculate HMM training once for all assets ---
+    hmm_model = None
+    # We use TLT as a proxy to get the date indices for training (m_is)
+    try:
+        _, _, idx_ref, _ = build_feature_matrix(raw_df, target_col="TLT")
+        m_is_ref = idx_ref.year < start_yr
+        if "Option F" in model_choice or "Option G" in model_choice:
+            hmm_model = RegimeHMM()
+            hmm_model.train_and_assign(raw_df.loc[idx_ref[m_is_ref]], assets)
+    except Exception as e:
+        print(f"HMM Training failed: {e}")
+        hmm_model = None
+
     all_preds = {}
     for ticker in assets:
         try:
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             m_oos = idx.year >= start_yr
-            m_is = idx.year < start_yr
             
+            # Logic Branching for Models
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 eng = DeepHybridEngine(mode=model_choice)
-                # Map the UI choice to the correct file you saved
                 model_map = {"Option I": "opt_i_cnn.h5", "Option J": "opt_j_cnn_lstm.h5", "Option K": "opt_k_hybrid.h5"}
                 eng.load(f"models/{model_map[model_choice]}")
                 oos_indices = np.where(m_oos)[0]
+                # Reconstruct 3D window for Deep Learning
                 X_3d = np.array([np.vstack([np.repeat(X[0:1], 20-len(X[max(0, i-19):i+1]), axis=0), X[max(0, i-19):i+1]]) for i in oos_indices])
                 X_macro = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].values if "Option K" in model_choice else None
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
-            # Move HMM training ABOVE the 'for ticker in assets' loop to save time
-            hmm_model = None
-            if "Option F" in model_choice or "Option G" in model_choice:
-                try:
-                    hmm_model = RegimeHMM()
-                    hmm_model.train_and_assign(raw_df.loc[idx[m_is]], assets)
-                except:
-                    hmm_model = None # Fallback if training fails
-            for ticker in assets:
-                try:
-                    X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
-                    # ... (other logic) ...
 
             elif "Option F" in model_choice:
                 if hmm_model:
                     macro_oos = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].diff().loc[idx[m_oos]].fillna(0)
                     preds = [1.0 if hmm_model.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i in range(len(macro_oos))]
                 else:
-                    preds = np.zeros(np.sum(m_oos)) # Safety fallback
+                    preds = np.zeros(np.sum(m_oos))
 
             elif "Option G" in model_choice:
                 eng = MomentumEngine()
@@ -83,9 +84,9 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                     macro_oos = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].diff().loc[idx[m_oos]].fillna(0)
                     preds = [raw_svr[i] * 1.15 if hmm_model.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i in range(len(macro_oos))]
                 else:
-                    preds = raw_svr # Fallback to pure SVR if HMM fails
+                    preds = raw_svr
+
             elif "Option H" in model_choice:
-                # Option H uses SVR + Bayesian, so we LOAD the SVR weights
                 eng = MomentumEngine()
                 eng.load("models/svr_momentum_poly.pkl")
                 bf = BayesianFilter()
@@ -93,25 +94,30 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 preds = eng.predict_series(X[m_oos]) * conf_vec.values[-np.sum(m_oos):]
                 
             elif "Option E" in model_choice:
-                # Option E is just Bayesian-Regime; no SVR engine needed
                 bf = BayesianFilter()
-                # Assuming Option E uses the confidence score as the direct prediction
                 preds = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]]).values[-np.sum(m_oos):]
+
             elif "Option C" in model_choice:
                 eng = A2CEngine()
-                eng.load("models/a2c_weights.pkl") # Ensure your trainer saves this name
+                eng.load("models/a2c_weights.pkl")
                 preds = eng.predict_series(X[m_oos])
+
             else:
                 eng = MomentumEngine()
-                eng.load("models/svr_momentum_poly.pkl") # Use the pre-trained file
+                eng.load("models/svr_momentum_poly.pkl")
                 preds = eng.predict_series(X[m_oos])
+
             all_preds[ticker] = pd.Series(preds, index=idx[m_oos])
-        except Exception:
+            
+        except Exception as e:
+            print(f"Error processing {ticker}: {e}")
             continue
 
     df_p = pd.DataFrame(all_preds).dropna()
     if df_p.empty: return None
-    common_idx = df_p.index
+    # ... (Rest of your backtest logic continues here)])
+        except Exception:
+            continue
     
     equity, current_asset, hwm, in_timeout = 100.0, "CASH", 100.0, False
     rets, hist, confs = [], [], []
