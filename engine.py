@@ -91,8 +91,8 @@ class MomentumEngine:
             return True
         except: return False
 
-    def predict_series(self, X, X_macro=None, full_index=None):
-        """Universal signature for all call types"""
+    def predict_series(self, X, **kwargs):
+        full_index = kwargs.get('full_index', None)
         idx = full_index if full_index is not None else (X.index if hasattr(X, 'index') else range(len(X)))
         if not self.is_trained:
             return pd.Series(0.0, index=idx)
@@ -107,7 +107,6 @@ class MomentumEngine:
         if os.path.exists(filepath):
             self.model = joblib.load(filepath)
             self.is_trained = True
-
 # ---------------------------------------------------------------------------
 # REINFORCEMENT LEARNING ENGINE
 # ---------------------------------------------------------------------------
