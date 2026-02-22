@@ -344,12 +344,42 @@ try:
     )
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- AUDIT TRAIL ---
+       # --- AUDIT TRAIL ---
         if "audit" in out:
             st.subheader("15-Day Audit Trail")
             audit_df = out["audit"].tail(15).copy()
             audit_df.index = audit_df.index.strftime('%Y-%m-%d')
-            st.dataframe(audit_df.style.map(lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038', subset=['Return']).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}), use_container_width=True)
+
+    # Identify the actual return column (likely Strategy_Ret or the ticker_Ret)
+    # We rename it to 'Return' for a clean UI and to match your intended styling
+    ret_col = next((c for c in audit_df.columns if "Ret" in c), None)
+        if ret_col:
+            audit_df = audit_df.rename(columns={ret_col: 'Return'})
+
+    # Build the formatting dictionary dynamically based on what exists
+    # This prevents the KeyError if Z-Score hasn't been calculated yet
+    format_dict = {}
+    style_subset = []
+
+        if 'Return' in audit_df.columns:
+            format_dict['Return'] = '{:.2%}'
+            style_subset.append('Return')
+    
+        if 'Z-Score' in audit_df.columns:
+            format_dict['Z-Score'] = '{:.2f}'
+            style_subset.append('Z-Score')
+
+    # Apply styling only to existing columns to avoid "moron" errors/crashes
+    try:
+        styled_df = audit_df.style.map(
+            lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038',
+            subset=style_subset
+        ).format(format_dict, na_rep="-")
+        
+        st.dataframe(styled_df, use_container_width=True)
+    except Exception:
+        # Emergency fallback to raw data if styling fails
+        st.dataframe(audit_df, use_container_width=True)
 
         # --- METHODOLOGY ---
         methodologies = {
