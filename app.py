@@ -360,12 +360,11 @@ try:
     # This prevents the KeyError if Z-Score hasn't been calculated yet
     format_dict = {}
     style_subset = []
-
-        if 'Return' in audit_df.columns:
+    if 'Return' in audit_df.columns:
             format_dict['Return'] = '{:.2%}'
             style_subset.append('Return')
     
-        if 'Z-Score' in audit_df.columns:
+    if 'Z-Score' in audit_df.columns:
             format_dict['Z-Score'] = '{:.2f}'
             style_subset.append('Z-Score')
 
