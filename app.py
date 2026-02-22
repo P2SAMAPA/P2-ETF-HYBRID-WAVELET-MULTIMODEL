@@ -173,23 +173,31 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("Terminal Config")
-    if st.button("🔄 Refresh Data & Cache"):
-       # 1. Clear cache and trigger sync if button is pressed
-if st.sidebar.button("🔄 Refresh Data & Clear Cache"):
-    st.cache_data.clear()
-    # We use 'raw_df' for the DataFrame to avoid naming conflicts with the function
-    raw_df, msg = load_raw_data(force_sync=True) 
-    st.sidebar.success(msg)
     
-    # Line 179 Fix: Check if empty first, then use the correct variable 'raw_df'
-    if not raw_df.empty:
-        st.toast(f"Data Synced: {raw_df.index[-1].strftime('%Y-%m-%d')}")
-else:
-    # Normal load without force sync
-    raw_df, msg = load_raw_data(force_sync=False)
-
-# 2. Use 'raw_df' for the rest of your app logic (Features, Backtests, etc.)
+    # 1. Combined Refresh Logic
+    if st.button("🔄 Refresh Data & Clear Cache"):
+        # Clear the streamlit cache
+        st.cache_data.clear()
+        
+        # Trigger the sync and unpack the (DataFrame, Message) tuple
+        raw_df, msg = load_raw_data(force_sync=True) 
+        
+        # Show success message in sidebar
+        st.success(msg)
+        
+        # Toast notification for the date sync
+        if not raw_df.empty:
+            st.toast(f"Data Synced: {raw_df.index[-1].strftime('%Y-%m-%d')}")
+        
+        # Rerun to refresh all charts with the new data
         st.rerun()
+    else:
+        # 2. Normal Load (when button is NOT pressed)
+        # This keeps the app running on existing cache/Hugging Face data
+        raw_df, msg = load_raw_data(force_sync=False)
+
+# --- 2. END OF SIDEBAR / START OF LOGIC ---
+# Use 'raw_df' for the rest of your app logic (Features, Backtests, etc.)
     
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Intelligence Engine", [
