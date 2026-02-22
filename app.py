@@ -272,11 +272,26 @@ try:
         
         if len(df) > 1 and df['Strategy_Ret'].std() != 0:
             ann_ret = float((df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1)
-            sharpe = float(((df['Strategy_Ret']-df['RF']).mean() / df['Strategy_Ret'].std()) * np.sqrt(252))
-            
-            c1.metric("Annual Return", f"{ann_ret:.2%}")
-            c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-            c3.metric("Max DD (P/T)", f"{float(df['Drawdown'].min()):.2%}")
+            # --- RECTIFIED METRICS SECTION ---
+        # 1. Calculate Daily Risk-Free Rate from TBILL_3M (Annualized % -> Daily Decimal)
+        if 'TBILL_3M' in df.columns:
+            daily_rf = (df['TBILL_3M'] / 100) / 252
+        else:
+            daily_rf = 0.0
+
+        # 2. Calculate Sharpe Ratio using the actual benchmark
+        excess_ret = df['Strategy_Ret'] - daily_rf
+        strat_std = df['Strategy_Ret'].std()
+
+        if strat_std != 0:
+            sharpe = float((excess_ret.mean() / strat_std) * np.sqrt(252))
+        else:
+            sharpe = 0.0
+
+# 3. Render Metrics
+c1.metric("Annual Return", f"{ann_ret:.2%}")
+c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
+c3.metric("Max DD (P/T)", f"{float(df['Drawdown'].min()):.2%}")
             
             with c4:
                 st.metric("Max DD (Daily)", f"{float(df['Strategy_Ret'].min()):.2%}")
