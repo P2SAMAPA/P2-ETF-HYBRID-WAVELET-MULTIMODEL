@@ -63,10 +63,10 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                     hmm_model.train_and_assign(raw_df.loc[idx[m_is]], assets)
                 except:
                     hmm_model = None # Fallback if training fails
-    for ticker in assets:
-        try:
-            X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
-            # ... (other logic) ...
+            for ticker in assets:
+                try:
+                    X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
+                    # ... (other logic) ...
 
             elif "Option F" in model_choice:
                 if hmm_model:
