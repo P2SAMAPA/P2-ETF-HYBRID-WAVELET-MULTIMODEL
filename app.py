@@ -214,31 +214,32 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         "conf": float(confs[-1]), 
         "date": common_idx[-1].strftime('%Y-%m-%d')
     }
-# --- SIDEBAR ---
-with st.sidebar:
+    # --- SIDEBAR ---
+    with st.sidebar:
     st.header("Terminal Config")
     
     # 1. Combined Refresh Logic
     if st.button("🔄 Refresh Data & Clear Cache"):
-        # Clear the streamlit cache
         st.cache_data.clear()
         
-        # Trigger the sync and unpack the (DataFrame, Message) tuple
+        # Trigger sync and update session state immediately
         raw_df, msg = load_raw_data(force_sync=True) 
+        st.session_state['raw_df'] = raw_df
         
-        # Show success message in sidebar
         st.success(msg)
-        
-        # Toast notification for the date sync
-        if not raw_df.empty:
+        if raw_df is not None and not raw_df.empty:
             st.toast(f"Data Synced: {raw_df.index[-1].strftime('%Y-%m-%d')}")
         
-        # Rerun to refresh all charts with the new data
         st.rerun()
-    else:
-        # 2. Normal Load (when button is NOT pressed)
-        # This keeps the app running on existing cache/Hugging Face data
+
+    # 2. Optimized Load Logic (STOP THE FLICKERING)
+    # If the data isn't in session state, load it once. 
+    # Otherwise, use what we already have without calling load_raw_data again.
+    if 'raw_df' not in st.session_state:
         raw_df, msg = load_raw_data(force_sync=False)
+        st.session_state['raw_df'] = raw_df
+    else:
+        raw_df = st.session_state['raw_df']
 
     
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
