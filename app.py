@@ -103,17 +103,19 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         equity *= (1 + day_r)
         rets.append(day_r); hist.append(current_asset); confs.append(z_score)
 
-   # --- RECTIFIED DATA ALIGNMENT ---
+   # --- RECTIFIED DATA ALIGNMENT (WITH RF FIX) ---
     res = pd.DataFrame(index=common_idx)
-    res.index = pd.to_datetime(res.index) # Force DatetimeIndex
+    res.index = pd.to_datetime(res.index)
     res["Equity"] = (np.array(rets) + 1).cumprod() * 100
     res["Strategy_Ret"] = rets
     
-    # Ensure Benchmarks match the EXACT same dates to prevent 'stretching'
+    # Re-insert the Risk-Free Rate for Sharpe Calculation
+    res["RF"] = (raw_df.loc[common_idx, "TBILL_3M"] / 100) / 252
+    
+    # Ensure Benchmarks match
     res["SPY"] = (raw_df.loc[common_idx, "SPY_Ret"] + 1).cumprod() * 100
     res["AGG"] = (raw_df.loc[common_idx, "AGG_Ret"] + 1).cumprod() * 100
     
-    # Drop any NaNs that occurred during benchmark mapping
     res = res.dropna()
     
     return {"df": res, "audit": pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx), 
