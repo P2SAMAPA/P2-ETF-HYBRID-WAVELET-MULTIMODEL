@@ -20,7 +20,7 @@ def train_and_save_all():
     # 3. Load Data
     # We set force_sync=False because the trainer just needs to read the master data
     print("Downloading data from Hugging Face...")
-    df = load_raw_data(force_sync=False)
+    df, _ = load_raw_data(force_sync=False)
     
     # Note the ', _' which catches the status message and prevents the error
     df, _ = load_raw_data() 
