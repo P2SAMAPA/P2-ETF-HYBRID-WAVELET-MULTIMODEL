@@ -159,10 +159,36 @@ if out:
 
     st.subheader("OOS Cumulative Return")
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["Equity"], name="P2 Strategy", line=dict(color='#1a73e8', width=3)))
-    fig.add_trace(go.Scatter(x=df.index, y=df["SPY"], name="SPY Bench", line=dict(color='#718096', dash='dot')))
-    fig.add_trace(go.Scatter(x=df.index, y=df["AGG"], name="AGG Bench", line=dict(color='#e53e3e', dash='dot')))
-    fig.update_layout(template="plotly_white", xaxis_type='date', height=500, margin=dict(l=0,r=0,t=10,b=0), legend=dict(orientation="h", y=1.1, x=1, xanchor='right'))
+
+    # Explicitly map x to df.index to stop the diagonal line
+    fig.add_trace(go.Scatter(
+        x=df.index, 
+        y=df["Equity"], 
+        name="P2 Strategy", 
+        line=dict(color='#1a73e8', width=3)
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=df.index, 
+        y=df["SPY"], 
+        name="SPY Bench", 
+        line=dict(color='#718096', dash='dot')
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=df.index, 
+        y=df["AGG"], 
+        name="AGG Bench", 
+        line=dict(color='#e53e3e', dash='dot')
+    ))
+
+    fig.update_layout(
+        template="plotly_white",
+        xaxis=dict(type='date', tickformat='%Y-%m'), # Force Date formatting
+        height=500,
+        margin=dict(l=0,r=0,t=10,b=0),
+        legend=dict(orientation="h", y=1.1, x=1, xanchor='right')
+    )
     st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("15-Day Audit Trail")
