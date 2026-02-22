@@ -196,19 +196,22 @@ with st.sidebar:
 # --- UI EXECUTION ---
 out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma)
 
-if out:
+# Check if out exists and contains valid data to prevent silent crashes
+if out and isinstance(out, dict) and not out.get("df", pd.DataFrame()).empty:
     df = out["df"]
     st.title("P2 Wavelet Multi-Model")
     
     st.markdown(f"""
         <div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
             <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction for NYSE: {get_next_trading_day_simple()}</p>
-            <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out['target']}</h1>
-            <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Current Z-Score: {out['conf']:.2f}σ</p>
+            <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out.get('target', 'CASH')}</h1>
+            <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Current Z-Score: {float(out.get('conf', 0)):.2f}σ</p>
         </div>
     """, unsafe_allow_html=True)
     
     c1, c2, c3, c4, c5 = st.columns(5)
+    
+    # Metrics calculations (Nested inside if out to ensure df exists)
     ann_ret = float((df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1)
     sharpe = float(((df['Strategy_Ret']-df['RF']).mean()/df['Strategy_Ret'].std())*np.sqrt(252))
     
@@ -265,4 +268,6 @@ if out:
     st.info(f"⚠️ **Risk Policy:** Trailing Stop Loss at {sl_input*100:.1f}%. Recovery requires Z-Score > {rec_sigma}.")
 
 else:
+    # This aligns with the initial 'if out:'
     st.error("Model failure. Check Start Year or data source.")
+    st.warning("If the screen is still blank, ensure 'np' (numpy) and 'pd' (pandas) are imported.")
