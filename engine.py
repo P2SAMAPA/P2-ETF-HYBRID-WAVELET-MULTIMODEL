@@ -74,7 +74,7 @@ class DeepHybridEngine:
             self.is_trained = True
 
 # ---------------------------------------------------------------------------
-# SVR ENGINES (Options A, B, C, D)
+# SVR & RL ENGINES (A B C D)
 # ---------------------------------------------------------------------------
 class MomentumEngine:
     def __init__(self, c_param=700.0, degree=3):
@@ -91,13 +91,22 @@ class MomentumEngine:
             return True
         except: return False
 
-    def predict_series(self, X, **kwargs):
-        full_index = kwargs.get('full_index', None)
-        idx = full_index if full_index is not None else (X.index if hasattr(X, 'index') else range(len(X)))
+    def predict_series(self, X, X_macro=None, full_index=None):
+        # Fixes diagonal line: uses dates if provided, otherwise defaults to X index
+        idx = full_index if full_index is not None else getattr(X, 'index', range(len(X)))
+        
         if not self.is_trained:
             return pd.Series(0.0, index=idx)
+        
         raw_preds = self.model.predict(X)
-        return pd.Series(raw_preds, index=idx)
+        
+        # Ensure predictions align with the index length
+        if len(raw_preds) == len(idx):
+            return pd.Series(raw_preds, index=idx)
+        else:
+            final_preds = np.zeros(len(idx))
+            final_preds[-len(raw_preds):] = raw_preds
+            return pd.Series(final_preds, index=idx)
 
     def save(self, filepath):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -126,11 +135,20 @@ class A2CEngine:
         return True
 
     def predict_series(self, X, X_macro=None, full_index=None):
-        idx = full_index if full_index is not None else range(len(X))
-        if not self.is_trained: return pd.Series(0.0, index=idx)
+        idx = full_index if full_index is not None else (X.index if hasattr(X, 'index') else range(len(X)))
+        if not self.is_trained: 
+            return pd.Series(0.0, index=idx)
+        
         f = X.values if hasattr(X, 'values') else X
         raw_preds = np.tanh(np.dot(f, self.weights))
-        return pd.Series(raw_preds, index=idx)
+        
+        # Ensure predictions align with index length (Fixes Diagonal Line/Crashes)
+        if len(raw_preds) == len(idx):
+            return pd.Series(raw_preds, index=idx)
+        else:
+            final_preds = np.zeros(len(idx))
+            final_preds[-len(raw_preds):] = raw_preds
+            return pd.Series(final_preds, index=idx)
 
     def save(self, filepath):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -140,7 +158,6 @@ class A2CEngine:
         if os.path.exists(filepath):
             self.weights = joblib.load(filepath)
             self.is_trained = True
-
 # ---------------------------------------------------------------------------
 # BAYESIAN/HMM POST-PROCESSOR (Options E, F, G, H)
 # ---------------------------------------------------------------------------
