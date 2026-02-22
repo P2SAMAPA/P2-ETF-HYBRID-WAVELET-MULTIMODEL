@@ -302,14 +302,46 @@ try:
                 st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
                 st.markdown(f'<p class="metric-sub">Last 15 Trading Sessions</p>', unsafe_allow_html=True)
 
-        # --- CHARTING ---
+       # --- CHARTING ---
         st.subheader("OOS Cumulative Return")
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df.index, y=df["Equity"], name="P2 Strategy", line=dict(color='#1a73e8', width=3)))
-        fig.add_trace(go.Scatter(x=df.index, y=df["SPY"], name="SPY Bench", line=dict(color='#718096', dash='dot')))
-        fig.add_trace(go.Scatter(x=df.index, y=df["AGG"], name="AGG Bench", line=dict(color='#e53e3e', dash='dot')))
 
-        fig.update_layout(template="plotly_white", height=500, margin=dict(l=0,r=0,t=10,b=0))
+        # 1. Strategy Line (Primary)
+        if "Equity" in df.columns:
+        fig.add_trace(go.Scatter(
+        x=df.index, 
+        y=df["Equity"], 
+        name="P2 Strategy", 
+        line=dict(color='#1a73e8', width=3)
+        ))
+
+        # 2. Benchmarks (Normalized & Holiday-Safe)
+        # We loop through the benchmarks to keep the code clean and prevent KeyErrors
+        for bench, color in [("SPY", "#718096"), ("AGG", "#e53e3e")]:
+        if bench in df.columns:
+        # ffill handles holidays like Jan 1st; dropna finds the first valid trading day for normalization
+        bench_series = df[bench].ffill() 
+        first_valid = bench_series.dropna().iloc[0] if not bench_series.dropna().empty else None
+        
+        if first_valid:
+            # Normalize to 1.0 to match the Strategy Equity curve
+            normalized_bench = bench_series / first_valid
+            
+            fig.add_trace(go.Scatter(
+                x=df.index, 
+                y=normalized_bench, 
+                name=f"{bench} Bench", 
+                line=dict(color=color, dash='dot'),
+                connectgaps=True # Bridges the holiday nulls visible in your dataset
+            ))
+
+        fig.update_layout(
+        template="plotly_white", 
+        height=500, 
+        margin=dict(l=0, r=0, t=10, b=0),
+        yaxis_title="Growth of $1.00",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
         st.plotly_chart(fig, use_container_width=True)
 
         # --- AUDIT TRAIL ---
