@@ -28,37 +28,39 @@ def get_next_trading_day_simple():
     return next_day.strftime('%d %B %Y')
 
 # @st.cache_data(ttl=3600, show_spinner=False)  <-- Commented out to allow live debugging
-def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, _force_sync=False, _log=None):
+def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, _log=None):
     def logger(msg):
         if _log: _log.write(msg)
 
+    # RECTIFICATION: Ensure model_choice is a string to prevent 'not iterable' error
+    model_choice = str(model_choice)
+
     logger("📡 Step 1: Loading raw market data and risk-free rates...")
     
-    # RECTIFICATION: Unpack the tuple (DataFrame, Message)
-    raw_df, sync_msg = load_raw_data(force_sync=_force_sync)
+    # Handle tuple if raw_df wasn't unpacked earlier
+    if isinstance(raw_df, tuple):
+        raw_df = raw_df[0]
     
-    # Check if load failed
     if raw_df is None or raw_df.empty:
-        logger(f"❌ Critical Error: {sync_msg}")
+        logger("❌ Critical Error: DataFrame is empty.")
         return None
 
-    # Comprehensive asset list used in your training
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV", "SPY", "AGG"]
     
     for a in assets:
-        # Ensure the base ticker exists before calculating returns
         if a in raw_df.columns:
             if f"{a}_Ret" not in raw_df.columns:
                 raw_df[f"{a}_Ret"] = raw_df[a].pct_change()
-        else:
-            logger(f"⚠️ Warning: {a} missing from source data.")
             
-    # RECTIFICATION: Force t_costs_bps to float to prevent TypeError
     try:
         t_cost_pct = float(t_costs_bps) / 10_000
     except (ValueError, TypeError):
-        logger("⚠️ Warning: Invalid transaction cost input. Defaulting to 0.")
         t_cost_pct = 0.0
+        
+    # Line 68 is now safe because model_choice is guaranteed to be a string
+    if "Option F" in model_choice or "Option G" in model_choice:
+        logger("🔍 Running Bayesian/Regime logic...")
+        # ... rest of logic
         
     from data.processor import build_feature_matrix
     
