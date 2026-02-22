@@ -102,24 +102,28 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 eng.load("models/a2c_weights.pkl")
                 preds = eng.predict_series(X[m_oos])
 
-            else:
+           else:
                 eng = MomentumEngine()
                 eng.load("models/svr_momentum_poly.pkl")
                 preds = eng.predict_series(X[m_oos])
 
-            # This must be inside the try block (indented 12 spaces)
+            # 1. Store results inside the TRY block
             all_preds[ticker] = pd.Series(preds, index=idx[m_oos])
             
         except Exception as e:
-            # This must align with the 'try' on line 68 (indented 8 spaces)
+            # 2. Align this EXACTLY with the 'try' keyword
             print(f"Error processing {ticker}: {e}")
             continue
 
+    # 3. Move this OUTSIDE the loop (back to 4 spaces indentation)
     df_p = pd.DataFrame(all_preds).dropna()
-    if df_p.empty: return None
-    # ... (Rest of your backtest logic continues here)])
-        except Exception:
-            continue
+    if df_p.empty: 
+        return None
+    
+    # 4. Continue with your backtest logic
+    common_idx = df_p.index
+    equity, current_asset, hwm, in_timeout = 100.0, "CASH", 100.0, False
+    # ... (rest of code)
     
     equity, current_asset, hwm, in_timeout = 100.0, "CASH", 100.0, False
     rets, hist, confs = [], [], []
