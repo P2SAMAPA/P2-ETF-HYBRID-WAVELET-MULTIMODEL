@@ -28,6 +28,7 @@ def get_next_trading_day_simple():
     return next_day.strftime('%d %B %Y')
 
 @st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, _force_sync=False):
     raw_df = load_raw_data(force_sync=_force_sync)
     assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
@@ -39,7 +40,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
     t_cost_pct = t_costs_bps / 10_000
     from data.processor import build_feature_matrix
 
-    # --- Pre-calculate HMM training once for all assets ---
+    # --- HMM Training ---
     hmm_model = None
     try:
         _, _, idx_ref, _ = build_feature_matrix(raw_df, target_col="TLT")
@@ -47,8 +48,7 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         if "Option F" in model_choice or "Option G" in model_choice:
             hmm_model = RegimeHMM()
             hmm_model.train_and_assign(raw_df.loc[idx_ref[m_is_ref]], assets)
-    except Exception as e:
-        print(f"HMM Training failed: {e}")
+    except Exception:
         hmm_model = None
 
     all_preds = {}
@@ -57,11 +57,19 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             m_oos = idx.year >= start_yr
             
-            # Logic Branching for Models
-            if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
+            # RECTIFIED: Exact string matching for Options I, J, K to fix 'Model Failure'
+            if "Option I" in model_choice or "Option J" in model_choice or "Option K" in model_choice:
                 eng = DeepHybridEngine(mode=model_choice)
-                model_map = {"Option I": "opt_i_cnn.h5", "Option J": "opt_j_cnn_lstm.h5", "Option K": "opt_k_hybrid.h5"}
-                eng.load(f"models/{model_map[model_choice]}")
+                # Map keys to match the radio button labels exactly
+                model_map = {
+                    "Option I: Wavelet- CNN-LSTM": "opt_i_cnn.h5",
+                    "Option J: Wavelet-Attention-CNN-LSTM": "opt_j_cnn_lstm.h5",
+                    "Option K- Wavelet- Parallel-Dual-Stream-CNN-LSTM": "opt_k_hybrid.h5"
+                }
+                # Fallback mapping if exact match fails
+                fname = model_map.get(model_choice, "opt_i_cnn.h5")
+                eng.load(f"models/{fname}")
+                
                 oos_indices = np.where(m_oos)[0]
                 X_3d = np.array([np.vstack([np.repeat(X[0:1], 20-len(X[max(0, i-19):i+1]), axis=0), X[max(0, i-19):i+1]]) for i in oos_indices])
                 X_macro = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].values if "Option K" in model_choice else None
@@ -84,16 +92,19 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 else:
                     preds = raw_svr
 
-            elif "Option H" in model_choice:
+            elif "Option H" in model_choice or "Option E" in model_choice:
+                # RECTIFIED: Fixed the '.values' crash for Bayesian Filter
                 eng = MomentumEngine()
                 eng.load("models/svr_momentum_poly.pkl")
                 bf = BayesianFilter()
-                conf_vec = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]])
-                preds = eng.predict_series(X[m_oos]) * conf_vec.values[-np.sum(m_oos):]
+                conf_data = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]])
+                # Handle both Series and Numpy returns safely
+                conf_vals = conf_data.values if hasattr(conf_data, 'values') else conf_data
                 
-            elif "Option E" in model_choice:
-                bf = BayesianFilter()
-                preds = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]]).values[-np.sum(m_oos):]
+                if "Option H" in model_choice:
+                    preds = eng.predict_series(X[m_oos]) * conf_vals[-np.sum(m_oos):]
+                else:
+                    preds = conf_vals[-np.sum(m_oos):]
 
             elif "Option C" in model_choice:
                 eng = A2CEngine()
@@ -108,12 +119,11 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
             all_preds[ticker] = pd.Series(preds, index=idx[m_oos])
             
         except Exception as e:
-            print(f"Error processing {ticker}: {e}")
+            print(f"Log: Error processing {ticker} for {model_choice}: {e}")
             continue
 
     df_p = pd.DataFrame(all_preds).fillna(0)
-    if df_p.empty: 
-        return None
+    if df_p.empty: return None
     
     common_idx = df_p.index
     equity, current_asset, hwm, in_timeout = 100.0, "CASH", 100.0, False
@@ -122,30 +132,24 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
     for d in common_idx:
         dp = df_p.loc[d]
         z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
-        
         hwm = max(hwm, equity)
         drawdown = (equity - hwm) / hwm
         if drawdown <= -stop_loss_pct: in_timeout = True 
         if in_timeout and z_score >= recovery_sigma: in_timeout = False
         
-        raw_sig = dp.idxmax() if dp.max() > 0.0001 else "CASH"
+        # RECTIFIED: Capture all signals > 0 to avoid 'Always CASH'
+        raw_sig = dp.idxmax() if dp.max() > 0 else "CASH"
         final_sig = "CASH" if in_timeout else raw_sig
         
         if final_sig != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = final_sig
             
-        if current_asset == "CASH":
-            day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252
-        else:
-            day_r = raw_df.loc[d, f"{current_asset}_Ret"]
-            
+        day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252 if current_asset == "CASH" else raw_df.loc[d, f"{current_asset}_Ret"]
         equity *= (1 + day_r)
         rets.append(day_r); hist.append(current_asset); confs.append(z_score)
 
-    # --- FINAL RECTIFIED DATA ALIGNMENT ---
     res = pd.DataFrame(index=common_idx)
-    res.index = pd.to_datetime(res.index)
     res["Equity"] = (np.array(rets) + 1).cumprod() * 100
     res["Strategy_Ret"] = rets
     res["Drawdown"] = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
@@ -153,10 +157,8 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
     res["SPY"] = (raw_df.loc[common_idx, "SPY_Ret"] + 1).cumprod() * 100
     res["AGG"] = (raw_df.loc[common_idx, "AGG_Ret"] + 1).cumprod() * 100
     
-    res = res.dropna()
-    
     return {
-        "df": res, 
+        "df": res.ffill().bfill(), 
         "audit": pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx), 
         "target": str(hist[-1]), 
         "conf": float(confs[-1]), 
