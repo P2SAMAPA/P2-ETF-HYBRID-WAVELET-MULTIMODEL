@@ -352,9 +352,9 @@ try:
 
     # Identify the actual return column (likely Strategy_Ret or the ticker_Ret)
     # We rename it to 'Return' for a clean UI and to match your intended styling
-    ret_col = next((c for c in audit_df.columns if "Ret" in c), None)
-        if ret_col:
-            audit_df = audit_df.rename(columns={ret_col: 'Return'})
+        ret_col = next((c for c in audit_df.columns if "Ret" in c), None)
+            if ret_col:
+                audit_df = audit_df.rename(columns={ret_col: 'Return'})
 
     # Build the formatting dictionary dynamically based on what exists
     # This prevents the KeyError if Z-Score hasn't been calculated yet
