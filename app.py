@@ -29,7 +29,6 @@ def get_next_trading_day_simple():
 
 # @st.cache_data(ttl=3600, show_spinner=False)  <-- Commented out to allow live debugging
 def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, _force_sync=False, _log=None):
-    # Internal helper to update the UI Heartbeat
     def logger(msg):
         if _log: _log.write(msg)
 
@@ -44,10 +43,10 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
     t_cost_pct = t_costs_bps / 10_000
     from data.processor import build_feature_matrix
 
-    # --- HMM Training ---
+    # --- HMM Training (F & G) ---
     hmm_model = None
     if "Option F" in model_choice or "Option G" in model_choice:
-        logger("🧠 Step 2: Training Hidden Markov Model (HMM) on historical regimes...")
+        logger("🧠 Step 2: Training Hidden Markov Model (HMM)...")
         try:
             _, _, idx_ref, _ = build_feature_matrix(raw_df, target_col="TLT")
             m_is_ref = idx_ref.year < start_yr
@@ -55,7 +54,6 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
             hmm_model.train_and_assign(raw_df.loc[idx_ref[m_is_ref]], assets)
         except Exception as e:
             logger(f"⚠️ HMM Training failed: {e}")
-            hmm_model = None
 
     all_preds = {}
     logger(f"🤖 Step 3: Generating signals using {model_choice}...")
@@ -67,72 +65,63 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
             m_oos = idx.year >= start_yr
             oos_len = np.sum(m_oos)
             
-            # --- DEEP LEARNING PATHS (I, J, K) ---
-            if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
-                eng = DeepHybridEngine(mode=model_choice)
-                model_map = {
-                    "Option I: Wavelet- CNN-LSTM": "opt_i_cnn.h5",
-                    "Option J: Wavelet-Attention-CNN-LSTM": "opt_j_cnn_lstm.h5",
-                    "Option K- Wavelet- Parallel-Dual-Stream-CNN-LSTM": "opt_k_hybrid.h5"
-                }
-                fname = model_map.get(model_choice, "opt_i_cnn.h5")
+            # --- MODEL ROUTING ---
+            
+            # 1. DEEP LEARNING (I, J, K)
+            if "Option I" in model_choice or "Option J" in model_choice or "Option K" in model_choice:
+                mode_key = "Option I" if "Option I" in model_choice else ("Option J" if "Option J" in model_choice else "Option K")
+                eng = DeepHybridEngine(mode=mode_key)
+                fname = {"Option I": "opt_i_cnn.h5", "Option J": "opt_j_cnn_lstm.h5", "Option K": "opt_k_hybrid.h5"}[mode_key]
                 eng.load(f"models/{fname}")
                 
                 oos_indices = np.where(m_oos)[0]
                 X_3d = np.array([np.vstack([np.repeat(X[0:1], 20-len(X[max(0, i-19):i+1]), axis=0), X[max(0, i-19):i+1]]) for i in oos_indices])
                 
-                # RECTIFIED: Expand macro features from 5 to 8 for Option K
+                X_macro = None
                 if "Option K" in model_choice:
-                    macro_base = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]]
-                    # Adding 3 synthetic/derived columns to satisfy (None, 8) shape requirement
-                    macro_base["Asset_Mom"] = raw_df[f"{ticker}_Ret"].rolling(20).mean().loc[idx[m_oos]].fillna(0)
-                    macro_base["Asset_Vol"] = raw_df[f"{ticker}_Ret"].rolling(20).std().loc[idx[m_oos]].fillna(0)
-                    macro_base["Mkt_Proxy"] = raw_df["SPY_Ret"].loc[idx[m_oos]].fillna(0)
-                    X_macro = macro_base.values
-                else:
-                    X_macro = None
+                    m_df = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].copy()
+                    m_df["Mom"], m_df["Vol"], m_df["SPY"] = 0.0, 0.0, 0.0 # Feature padding
+                    X_macro = m_df.values
                     
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
 
-            # --- HMM PATHS ---
-            elif "Option F" in model_choice:
-                if hmm_model:
-                    macro_oos = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].diff().loc[idx[m_oos]].fillna(0)
-                    preds = [1.0 if hmm_model.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i in range(len(macro_oos))]
-                else:
-                    preds = np.zeros(oos_len)
+            # 2. REINFORCEMENT LEARNING (B, C, D)
+            elif any(opt in model_choice for opt in ["Option B", "Option C", "Option D"]):
+                # A2C / PPO Weights
+                eng = A2CEngine() 
+                w_file = "models/ppo_weights.pkl" if "Option B" in model_choice else "models/a2c_weights.pkl"
+                eng.load(w_file)
+                preds = eng.predict_series(X[m_oos])
 
-            elif "Option G" in model_choice:
-                eng = MomentumEngine()
-                eng.load("models/svr_momentum_poly.pkl")
-                raw_svr = eng.predict_series(X[m_oos])
-                if hmm_model:
-                    macro_oos = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].diff().loc[idx[m_oos]].fillna(0)
-                    preds = [raw_svr[i] * 1.15 if hmm_model.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i in range(len(macro_oos))]
+            # 3. HMM REGIMES (F, G)
+            elif "Option F" in model_choice or "Option G" in model_choice:
+                macro_oos = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].diff().loc[idx[m_oos]].fillna(0)
+                if "Option G" in model_choice:
+                    eng = MomentumEngine()
+                    eng.load("models/svr_momentum_poly.pkl")
+                    base = eng.predict_series(X[m_oos])
+                    preds = [base[i] * 1.5 if hmm_model and hmm_model.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i in range(oos_len)]
                 else:
-                    preds = raw_svr
+                    preds = [1.0 if hmm_model and hmm_model.predict_best_asset(macro_oos.iloc[i:i+1]) == ticker else 0.0 for i in range(oos_len)]
 
-            # --- BAYESIAN PATHS (E, H) ---
-            elif "Option H" in model_choice or "Option E" in model_choice:
-                eng = MomentumEngine()
-                eng.load("models/svr_momentum_poly.pkl")
+            # 4. BAYESIAN / REGIME (E, H)
+            elif "Option E" in model_choice or "Option H" in model_choice:
                 bf = BayesianFilter()
                 conf_data = bf.get_confidence(raw_df[ticker].loc[:idx[m_oos][-1]])
-                
-                # RECTIFIED: Flatten and index safely to avoid 'scalar variable' TypeError
+                # Force array conversion and tile if it's a single value to match index length
                 conf_vals = np.array(conf_data.values if hasattr(conf_data, 'values') else conf_data).flatten()
-                conf_tail = conf_vals[-oos_len:]
+                if len(conf_vals) == 1:
+                    conf_tail = np.full(oos_len, conf_vals[0])
+                else:
+                    conf_tail = conf_vals[-oos_len:]
                 
                 if "Option H" in model_choice:
+                    eng = MomentumEngine(); eng.load("models/svr_momentum_poly.pkl")
                     preds = eng.predict_series(X[m_oos]) * conf_tail
                 else:
                     preds = conf_tail
 
-            # --- RL & DEFAULT ---
-            elif "Option C" in model_choice:
-                eng = A2CEngine()
-                eng.load("models/a2c_weights.pkl")
-                preds = eng.predict_series(X[m_oos])
+            # 5. DEFAULT / OPTION A (SVR)
             else:
                 eng = MomentumEngine()
                 eng.load("models/svr_momentum_poly.pkl")
@@ -144,11 +133,9 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
             logger(f"❌ Error on {ticker}: {e}")
             continue
 
-    logger("📈 Step 4: Running Portfolio Simulation & Stop-Loss logic...")
+    logger("📈 Step 4: Running Portfolio Simulation...")
     df_p = pd.DataFrame(all_preds).fillna(0)
-    if df_p.empty: 
-        logger("🚨 Simulation Error: All prediction streams returned empty.")
-        return None
+    if df_p.empty: return None
     
     common_idx = df_p.index
     equity, current_asset, hwm, in_timeout = 100.0, "CASH", 100.0, False
@@ -158,12 +145,10 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         dp = df_p.loc[d]
         z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
         hwm = max(hwm, equity)
-        drawdown = (equity - hwm) / hwm
-        if drawdown <= -stop_loss_pct: in_timeout = True 
+        if (equity - hwm) / hwm <= -stop_loss_pct: in_timeout = True 
         if in_timeout and z_score >= recovery_sigma: in_timeout = False
         
-        raw_sig = dp.idxmax() if dp.max() > 0 else "CASH"
-        final_sig = "CASH" if in_timeout else raw_sig
+        final_sig = "CASH" if in_timeout or dp.max() <= 0 else dp.idxmax()
         
         if final_sig != current_asset:
             equity *= (1 - t_cost_pct)
@@ -173,24 +158,18 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         equity *= (1 + day_r)
         rets.append(day_r); hist.append(current_asset); confs.append(z_score)
 
-    logger("📊 Step 5: Finalizing metrics and Audit Trail...")
     res = pd.DataFrame(index=common_idx)
     res["Equity"] = (np.array(rets) + 1).cumprod() * 100
     res["Strategy_Ret"] = rets
     res["Drawdown"] = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
-    res["RF"] = (raw_df.loc[common_idx, "TBILL_3M"] / 100) / 252
     res["SPY"] = (raw_df.loc[common_idx, "SPY_Ret"] + 1).cumprod() * 100
-    res["AGG"] = (raw_df.loc[common_idx, "AGG_Ret"] + 1).cumprod() * 100
     
     logger("✅ Analysis Complete!")
     return {
         "df": res.ffill().bfill(), 
-        "audit": pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx), 
-        "target": str(hist[-1]), 
-        "conf": float(confs[-1]), 
-        "date": common_idx[-1].strftime('%Y-%m-%d')
+        "audit": pd.DataFrame({"Allocation": hist, "Z-Score": confs}, index=common_idx), 
+        "target": str(hist[-1]), "conf": float(confs[-1]), "date": common_idx[-1].strftime('%Y-%m-%d')
     }
-
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("Terminal Config")
