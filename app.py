@@ -103,16 +103,19 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         equity *= (1 + day_r)
         rets.append(day_r); hist.append(current_asset); confs.append(z_score)
 
-   # --- RECTIFIED DATA ALIGNMENT (WITH RF FIX) ---
+   # --- FINAL RECTIFIED DATA ALIGNMENT (ALL METRICS + GRAPH) ---
     res = pd.DataFrame(index=common_idx)
     res.index = pd.to_datetime(res.index)
     res["Equity"] = (np.array(rets) + 1).cumprod() * 100
     res["Strategy_Ret"] = rets
     
-    # Re-insert the Risk-Free Rate for Sharpe Calculation
+    # Calculate Drawdown for the c3/c4 metrics
+    res["Drawdown"] = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
+    
+    # Restore RF for Sharpe Calculation
     res["RF"] = (raw_df.loc[common_idx, "TBILL_3M"] / 100) / 252
     
-    # Ensure Benchmarks match
+    # Map Benchmarks
     res["SPY"] = (raw_df.loc[common_idx, "SPY_Ret"] + 1).cumprod() * 100
     res["AGG"] = (raw_df.loc[common_idx, "AGG_Ret"] + 1).cumprod() * 100
     
