@@ -56,14 +56,13 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
                 X_macro = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].values if "Option K" in model_choice else None
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
             # Move HMM training ABOVE the 'for ticker in assets' loop to save time
-                hmm_model = None
+            hmm_model = None
             if "Option F" in model_choice or "Option G" in model_choice:
-         try:
-            hmm_model = RegimeHMM()
-            hmm_model.train_and_assign(raw_df.loc[idx[m_is]], assets)
-        except:
-            hmm_model = None # Fallback if training fails
-
+                try:
+                    hmm_model = RegimeHMM()
+                    hmm_model.train_and_assign(raw_df.loc[idx[m_is]], assets)
+                except:
+                    hmm_model = None # Fallback if training fails
     for ticker in assets:
         try:
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
