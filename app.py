@@ -193,7 +193,26 @@ with st.sidebar:
     rec_sigma = st.slider("Recovery Threshold (Sigma)", 1.0, 2.0, 1.1, 0.1)
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
+# --- DEBUG TOGGLE (Set to False to hide logs later) ---
+DEBUG_MODE = True 
+
 # --- UI EXECUTION ---
+try:
+    if DEBUG_MODE:
+        with st.status("🔍 Engine Heartbeat (Debug Mode)", expanded=True) as status:
+            st.write("Initializing backtest engine...")
+            # We pass the 'status' object into the function
+            out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma, _log=status)
+            status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
+    else:
+        with st.spinner("Processing Model Results..."):
+            out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma)
+
+    if out and isinstance(out, dict) and "df" in out and not out["df"].empty:
+        # --- (Your existing UI rendering code starts here) ---
+        df = out["df"]
+        st.title("P2 Wavelet Multi-Model")
+        # ... rest of your code ...
 try:
     with st.spinner("Processing Model Results..."):
         out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma)
