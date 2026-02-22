@@ -53,7 +53,13 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         else:
             logger(f"⚠️ Warning: {a} missing from source data.")
             
-    t_cost_pct = t_costs_bps / 10_000
+    # RECTIFICATION: Force t_costs_bps to float to prevent TypeError
+    try:
+        t_cost_pct = float(t_costs_bps) / 10_000
+    except (ValueError, TypeError):
+        logger("⚠️ Warning: Invalid transaction cost input. Defaulting to 0.")
+        t_cost_pct = 0.0
+        
     from data.processor import build_feature_matrix
     
    
