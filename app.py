@@ -33,16 +33,30 @@ def run_professional_backtest(start_yr, model_choice, t_costs_bps, stop_loss_pct
         if _log: _log.write(msg)
 
     logger("📡 Step 1: Loading raw market data and risk-free rates...")
-    raw_df = load_raw_data(force_sync=_force_sync)
-    assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
+    
+    # RECTIFICATION: Unpack the tuple (DataFrame, Message)
+    raw_df, sync_msg = load_raw_data(force_sync=_force_sync)
+    
+    # Check if load failed
+    if raw_df is None or raw_df.empty:
+        logger(f"❌ Critical Error: {sync_msg}")
+        return None
+
+    # Comprehensive asset list used in your training
+    assets = ["TLT", "TBT", "VNQ", "GLD", "SLV", "SPY", "AGG"]
     
     for a in assets:
-        if f"{a}_Ret" not in raw_df.columns:
-            raw_df[f"{a}_Ret"] = raw_df[a].pct_change()
+        # Ensure the base ticker exists before calculating returns
+        if a in raw_df.columns:
+            if f"{a}_Ret" not in raw_df.columns:
+                raw_df[f"{a}_Ret"] = raw_df[a].pct_change()
+        else:
+            logger(f"⚠️ Warning: {a} missing from source data.")
             
     t_cost_pct = t_costs_bps / 10_000
     from data.processor import build_feature_matrix
-
+    
+   
     # --- HMM Training (F & G) ---
     hmm_model = None
     if "Option F" in model_choice or "Option G" in model_choice:
@@ -196,8 +210,6 @@ with st.sidebar:
         # This keeps the app running on existing cache/Hugging Face data
         raw_df, msg = load_raw_data(force_sync=False)
 
-# --- 2. END OF SIDEBAR / START OF LOGIC ---
-# Use 'raw_df' for the rest of your app logic (Features, Backtests, etc.)
     
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Intelligence Engine", [
@@ -226,8 +238,8 @@ try:
     if DEBUG_MODE:
         with st.status("🔍 Engine Heartbeat (Debug Mode)", expanded=True) as status:
             st.write("Initializing backtest engine...")
-            # We pass the 'status' object to show progress on screen
-            out = run_professional_backtest(s_yr, opt, costs, sl_input, rec_sigma, _log=status)
+            # Pass raw_df (which we unpacked earlier as a DataFrame)
+            out = run_professional_backtest(raw_df, s_yr, opt, costs, sl_input, rec_sigma, _log=status)
             status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
     else:
         with st.spinner("Processing Model Results..."):
