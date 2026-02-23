@@ -223,24 +223,23 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         st.cache_data.clear()
         
         # Trigger sync and update session state immediately
-        raw_df, msg = load_raw_data(force_sync=True) 
-        st.session_state['raw_df'] = raw_df
+        raw_df_fresh, msg = load_raw_data(force_sync=True) 
+        st.session_state['raw_df'] = raw_df_fresh
         
         st.success(msg)
-        if raw_df is not None and not raw_df.empty:
-            st.toast(f"Data Synced: {raw_df.index[-1].strftime('%Y-%m-%d')}")
+        if raw_df_fresh is not None and not raw_df_fresh.empty:
+            st.toast(f"Data Synced: {raw_df_fresh.index[-1].strftime('%Y-%m-%d')}")
         
         st.rerun()
 
     # 2. Optimized Load Logic (STOP THE FLICKERING)
-    # If the data isn't in session state, load it once. 
-    # Otherwise, use what we already have without calling load_raw_data again.
     if 'raw_df' not in st.session_state:
-        raw_df, msg = load_raw_data(force_sync=False)
-        st.session_state['raw_df'] = raw_df
-    else:
-        raw_df = st.session_state['raw_df']
+        raw_df_init, msg = load_raw_data(force_sync=False)
+        st.session_state['raw_df'] = raw_df_init
 
+# --- GLOBAL SCOPE RECTIFICATION ---
+# This line ensures 'raw_df' is always defined for the backtest engine (Line 273)
+raw_df = st.session_state.get('raw_df')
     
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Intelligence Engine", [
