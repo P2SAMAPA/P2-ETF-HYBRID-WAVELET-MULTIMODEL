@@ -237,9 +237,9 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         raw_df_init, msg = load_raw_data(force_sync=False)
         st.session_state['raw_df'] = raw_df_init
 
-# --- GLOBAL SCOPE RECTIFICATION ---
-# This line ensures 'raw_df' is always defined for the backtest engine (Line 273)
-raw_df = st.session_state.get('raw_df')
+    # --- GLOBAL SCOPE RECTIFICATION ---
+    # This line ensures 'raw_df' is always defined for the backtest engine (Line 273)
+    raw_df = st.session_state.get('raw_df')
     
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
     opt = st.radio("Intelligence Engine", [
