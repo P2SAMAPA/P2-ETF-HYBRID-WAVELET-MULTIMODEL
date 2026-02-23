@@ -74,11 +74,17 @@ class DeepHybridEngine:
 # LOCAL MACHINE LEARNING ENGINES (Options A, G, H)
 # ---------------------------------------------------------------------------
 class MomentumEngine:
-    def __init__(self, c_param=700.0, degree=3):
+    """
+    RECTIFIED: Updated to RBF Kernel with High C-Penalty (2000.0)
+    to specifically target sharp reversals and higher sensitivity to price pivots.
+    """
+    def __init__(self, c_param=2000.0):
         self.is_trained = False
+        # RBF is superior for local non-linear trends. High C forces the model
+        # to prioritize accurate fitting over smoothness to catch reversals.
         self.model = Pipeline([
             ('scaler', StandardScaler()), 
-            ('svr', SVR(kernel='poly', degree=degree, C=c_param))
+            ('svr', SVR(kernel='rbf', C=c_param, gamma='scale'))
         ])
 
     def train(self, X, y):
@@ -110,7 +116,7 @@ class PPOEngine:
         self.lr, self.epsilon, self.weights, self.is_trained = lr, epsilon, None, False
 
     def train(self, X, y):
-        np.random.seed(42) 
+        np.random.seed(42) # Stability locked for Option B
         f = X.values if hasattr(X, 'values') else X
         l = y.values if hasattr(y, 'values') else y
         if self.weights is None:
@@ -170,27 +176,20 @@ class A2CEngine:
 # ---------------------------------------------------------------------------
 def run_bayesian_filter(series):
     """
-    Applies the Bayesian confidence logic.
-    We lowered the threshold and used signal-scaling to prevent 
-    Models E and H from getting stuck in CASH.
+    Applies aggressive Bayesian scaling. Threshold is 0.60 to prevent
+    Option E and H from defaulting to CASH too easily.
     """
     if not isinstance(series, pd.Series) or len(series) < 10: 
         return series
     
     bf = BayesianFilter()
-    
-    # Calculate rolling probability trend is structural
     conf_scores = series.rolling(window=15, min_periods=5).apply(bf.get_confidence)
     
     adjusted_series = series.copy()
-    threshold = 0.60 # Aggressive: allow signals if confidence > 60%
+    threshold = 0.60 
     
     mask = conf_scores >= threshold
-    # If below threshold, force to CASH (0.0)
     adjusted_series[~mask] = 0.0 
-    
-    # If above threshold, multiply original signal by its confidence score
-    # This acts as a 'conviction-based' position sizing
     adjusted_series[mask] = series[mask] * conf_scores[mask]
     
     return adjusted_series
