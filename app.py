@@ -217,16 +217,10 @@ if raw_df is not None:
 
             st.info(f"⚠️ **Risk Policy:** Trailing Stop Loss at {sl_input*100:.1f}%. Recovery requires Z-Score > {rec_sigma}.")
 
-        else:
+     else:
             st.error("Model Engine Error: Backtest returned no data.")
-
-        else:
+    except Exception as e:
+            st.error("CRITICAL UI RENDER ERROR")
+            st.exception(e)
+    else:
             st.info("Please wait... Loading market data.")
-
-        except Exception as e:
-
-    st.error("CRITICAL UI RENDER ERROR")
-    st.exception(e)
-
-        st.subheader("15-Day Audit Trail")
-        st.dataframe(out["audit"].tail(15), use_container_width=True)
