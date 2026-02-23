@@ -156,8 +156,11 @@ with st.sidebar:
     st.header("Terminal Config")
     st.info("💡 Options I, J, K are cloud-trained (2008-2026). Options A-H retrain locally.")
     
-    if st.button("🔄 Refresh Data & Clear Cache"):
+   if st.button("🔄 Refresh Data & Clear Cache"):
         st.cache_data.clear()
+        # RECTIFIED: Explicitly trigger the sync on the next run
+        st.session_state['raw_df'], sync_msg = load_raw_data(force_sync=True)
+        st.toast(sync_msg) # Show the sync result as a popup
         st.rerun()
 
     if 'raw_df' not in st.session_state:
