@@ -82,7 +82,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
             # --- LOCAL MODELS (A-H) ---
             else:
                 m_is = idx.year < start_yr
-                # RECTIFIED: Specific routing for Option B (PPO) and C/D (A2C)
                 if "Option B" in model_choice:
                     eng = PPOEngine()
                 elif any(opt in model_choice for opt in ["Option C", "Option D"]):
@@ -93,7 +92,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
                 eng.train(X[m_is], y[m_is])
                 preds = eng.predict_series(X[m_oos])
                 
-                # RECTIFIED: Apply Bayesian smoothing for E and H
                 if any(opt in model_choice for opt in ["Option E", "Option H"]):
                     preds = run_bayesian_filter(preds)
 
@@ -108,20 +106,44 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     
     common_idx = df_p.index
     equity, current_asset = 100.0, "CASH"
+    peak_equity = 100.0
+    is_stopped_out = False
     rets, hist, confs = [], [], []
 
+    # --- PORTFOLIO LOOP WITH TRAILING STOP LOSS ---
     for i, d in enumerate(common_idx):
         dp = df_p.loc[d]
         std_val = dp.std()
         z_score = (dp.max() - dp.mean()) / std_val if std_val > 1e-6 else 0.0
         
-        # Allocation Logic - Picks the best ETF, falls to CASH only if no signal
-        final_sig = dp.idxmax() if dp.max() > 0 else "CASH"
+        # Determine raw signal
+        best_ticker = dp.idxmax() if dp.max() > 0 else "CASH"
+        final_sig = best_ticker
+
+        # Recovery Logic: If stopped out, must clear Sigma threshold to re-enter
+        if is_stopped_out:
+            if z_score > recovery_sigma:
+                is_stopped_out = False # Recovered
+            else:
+                final_sig = "CASH"
+
+        # Check for Stop Loss trigger if currently in an asset
+        if current_asset != "CASH":
+            # Track peak equity for the current holding
+            if equity > peak_equity: peak_equity = equity
+            
+            # Trigger Trailing Stop Loss
+            if equity < (peak_equity * (1 - stop_loss_pct)):
+                final_sig = "CASH"
+                is_stopped_out = True
         
+        # Execute Trade & Apply T-Costs
         if final_sig != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = final_sig
+            peak_equity = equity # Reset peak for new asset or cash position
             
+        # Calculate daily return
         if current_asset == "CASH":
             day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252 if "TBILL_3M" in raw_df.columns else 0.0
         else:
@@ -151,16 +173,15 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         "date": common_idx[-1].strftime('%Y-%m-%d')
     }
 
-# --- SIDEBAR & UI RENDER (Unchanged as requested) ---
+# --- SIDEBAR & UI RENDER ---
 with st.sidebar:
     st.header("Terminal Config")
     st.info("💡 Options I, J, K are cloud-trained (2008-2026). Options A-H retrain locally.")
     
     if st.button("🔄 Refresh Data & Clear Cache"):
         st.cache_data.clear()
-        # RECTIFIED: Explicitly trigger the sync on the next run
         st.session_state['raw_df'], sync_msg = load_raw_data(force_sync=True)
-        st.toast(sync_msg) # Show the sync result as a popup
+        st.toast(sync_msg)
         st.rerun()
 
     if 'raw_df' not in st.session_state:
@@ -174,7 +195,8 @@ with st.sidebar:
         "Option J: Wavelet-Attention-CNN-LSTM", "Option K- Wavelet- Parallel-Dual-Stream-CNN-LSTM"
     ])
     sl_input = st.slider("Trailing Stop Loss (%)", 8.0, 20.0, 10.0, 0.5) / 100
-    rec_sigma = st.slider("Recovery Threshold (Sigma)", 1.0, 2.0, 1.1, 0.1)
+    # RECTIFIED: Updated range to 0.75 - 2.0
+    rec_sigma = st.slider("Recovery Threshold (Sigma)", 0.75, 2.0, 1.1, 0.05)
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
 raw_df = st.session_state.get('raw_df')
@@ -211,7 +233,17 @@ if raw_df is not None:
             st.subheader("15-Day Audit Trail")
             audit_display = out["audit"].tail(15).copy()
             audit_display.index = audit_display.index.strftime('%Y-%m-%d')
-            st.dataframe(audit_display.style.format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}), use_container_width=True)
+            
+            # RECTIFIED: Conditional formatting for Green/Red returns
+            def style_returns(val):
+                color = '#d93025' if val < 0 else '#188038'
+                return f'color: {color}; font-weight: bold'
+
+            st.dataframe(
+                audit_display.style.format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'})
+                .applymap(style_returns, subset=['Return']), 
+                use_container_width=True
+            )
 
             methodologies = {
                 "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR.",
