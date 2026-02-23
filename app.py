@@ -56,34 +56,46 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         try:
             logger(f"    -> Intelligence Stream: {ticker}")
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
-            m_is = idx.year < start_yr
-            m_oos = idx.year >= start_yr
-            oos_len = np.sum(m_oos)
             
-            # --- CLOUD TIERS (I, J, K) ---
+            # --- CLOUD TIERS (I, J, K): Trained 2008-2026 ---
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 mode_key = "Option I" if "Option I" in model_choice else ("Option J" if "Option J" in model_choice else "Option K")
                 eng = DeepHybridEngine(mode=mode_key)
                 fname = {"Option I": "opt_i_cnn.h5", "Option J": "opt_j_cnn_lstm.h5", "Option K": "opt_k_hybrid.h5"}[mode_key]
                 eng.load(f"models/{fname}")
                 
+                # Identify Out-of-Sample based on Slider
+                m_oos = idx.year >= start_yr
                 oos_indices = np.where(m_oos)[0]
-                X_3d = np.array([np.vstack([np.repeat(X[0:1], 20-len(X[max(0, i-19):i+1]), axis=0), X[max(0, i-19):i+1]]) for i in oos_indices])
+                
+                # RECTIFICATION: Robust 3D windowing for Deep Learning
+                X_3d_list = []
+                for i in oos_indices:
+                    start_idx = max(0, i - 19)
+                    window = X[start_idx : i + 1]
+                    if len(window) < 20:
+                        padding = np.repeat(X[0:1], 20 - len(window), axis=0)
+                        window = np.vstack([padding, window])
+                    X_3d_list.append(window)
+                
+                X_3d = np.array(X_3d_list)
                 X_macro = None
                 if "Option K" in model_choice:
                     m_df = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].copy()
                     m_df["Mom"], m_df["Vol"], m_df["SPY"] = 0.0, 0.0, 0.0 
                     X_macro = m_df.values
+                
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
 
-            # --- LOCAL TIERS (A-H) ---
+            # --- LOCAL TIERS (A-H): Retrained based on Slider ---
             else:
+                m_is = idx.year < start_yr
+                m_oos = idx.year >= start_yr
                 if any(opt in model_choice for opt in ["Option B", "Option C", "Option D"]):
                     eng = A2CEngine()
                 else:
                     eng = MomentumEngine()
                 
-                # RETRAIN LOCALLY BASED ON SLIDER YEAR
                 eng.train(X[m_is], y[m_is])
                 preds = eng.predict_series(X[m_oos])
 
@@ -103,31 +115,24 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     for i, d in enumerate(common_idx):
         dp = df_p.loc[d]
         z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
-        
-        # --- STOP LOSS MODULE TEMPORARILY DISABLED ---
         in_timeout = False 
         
-        # Decision Logic: Always Winner Takes All
         final_sig = dp.idxmax()
         
-        # --- TRANSACTION COSTS ---
         if final_sig != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = final_sig
             
-        # Daily Return Calculation
         if current_asset == "CASH":
             day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252
         else:
             day_r = raw_df.loc[d, f"{current_asset}_Ret"]
             
         equity *= (1 + day_r)
-        
         rets.append(day_r)
         hist.append(current_asset)
         confs.append(z_score)
 
-    # Building the Results DataFrame
     res = pd.DataFrame(index=common_idx)
     res["Strategy_Ret"] = rets
     res["Equity"] = (pd.Series(rets) + 1).cumprod().values * 100
