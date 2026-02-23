@@ -159,7 +159,7 @@ raw_df = st.session_state.get('raw_df')
 
 # --- UI EXECUTION ---
 if raw_df is not None:
-    try: # Added try block to match the except Exception as e below
+    try:
         with st.status("🔍 Engine Heartbeat", expanded=False) as status:
             out = run_professional_backtest(raw_df, s_yr, opt, costs, sl_input, rec_sigma, _log=status)
         
@@ -177,7 +177,6 @@ if raw_df is not None:
             strat_std = df['Strategy_Ret'].std()
             sharpe = float((df['Strategy_Ret'].mean() / strat_std) * np.sqrt(252)) if strat_std != 0 else 0.0
             
-            # Finding the worst daily return and its date
             max_daily_dd = df['Strategy_Ret'].min()
             max_daily_dd_date = df['Strategy_Ret'].idxmin().strftime('%Y-%m-%d')
 
@@ -185,7 +184,7 @@ if raw_df is not None:
             c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
             c3.metric("Max DD (P/T)", f"{float(df['Drawdown'].min()):.2%}")
             
-            # RECTIFIED: Restored Max DD (Daily) with date as requested
+            # RECTIFIED: Max DD (Daily) with Date
             c4.metric("Max DD (Daily)", f"{max_daily_dd:.2%}")
             st.markdown(f"<div class='metric-sub'>Worst Day: <b>{max_daily_dd_date}</b></div>", unsafe_allow_html=True)
             
@@ -193,6 +192,7 @@ if raw_df is not None:
                 hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
                 st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
 
+            # RECTIFIED: Moved out of 'with c5' to ensure full-width rendering
             st.subheader("15-Day Audit Trail")
             audit_df = out["audit"].tail(15).copy()
             audit_df.index = audit_df.index.strftime('%Y-%m-%d')
@@ -207,12 +207,11 @@ if raw_df is not None:
             st.write(methodologies.get(method_key, "Wavelet-based multi-resolution analysis."))
             st.info(f"⚠️ **Risk Policy:** Trailing Stop Loss at {sl_input*100:.1f}%. Recovery requires Z-Score > {rec_sigma}.")
 
-        else: # Aligned with if out and "df" in out
+        else:
             st.error("Model Engine Error: Backtest returned no data.")
 
-    except Exception as e: # Aligned with the new try: block
+    except Exception as e:
         st.error("CRITICAL UI RENDER ERROR")
         st.exception(e)
-
-else: # Aligned with if raw_df is not None:
+else:
     st.info("Please wait... Loading market data.")
