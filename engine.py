@@ -7,7 +7,7 @@ import joblib
 import os
 
 # ---------------------------------------------------------------------------
-# DEEP LEARNING ENGINES (Options I, J, K)
+# DEEP LEARNING ENGINES (Options I, J, K) - CLOUD TRAINED
 # ---------------------------------------------------------------------------
 class DeepHybridEngine:
     def __init__(self, mode="Option K", lookback=20):
@@ -36,9 +36,8 @@ class DeepHybridEngine:
         return Model(inputs=[price_in, macro_in], outputs=out)
 
     def train(self, X, y):
-        """Matches train_models.py (X_3d, y_3d)"""
         n_price = X.shape[2]
-        X_macro = np.zeros((X.shape[0], 8)) # Default macro size
+        X_macro = np.zeros((X.shape[0], 8)) 
         self.model = self._build_parallel_model(n_price, 8)
         self.model.compile(optimizer='adam', loss='mse')
         self.model.fit([X, X_macro], y, epochs=5, batch_size=32, verbose=0)
@@ -46,18 +45,14 @@ class DeepHybridEngine:
         return True
 
     def predict_series(self, X, X_macro=None, full_index=None):
-        """Matches app.py: eng.predict_series(X_3d, X_macro=X_macro)"""
         idx = full_index if full_index is not None else range(len(X))
         if not self.is_trained or self.model is None:
             return pd.Series(0.0, index=idx)
         
-        # If app.py sends X_macro=None, create dummy to prevent Keras crash
         if X_macro is None:
             X_macro = np.zeros((X.shape[0], 8))
             
         raw_preds = self.model.predict([X, X_macro], verbose=0).flatten()
-        
-        # Fill index to ensure graph alignment
         preds = np.zeros(len(idx))
         preds[-len(raw_preds):] = raw_preds
         return pd.Series(preds, index=idx)
@@ -74,7 +69,7 @@ class DeepHybridEngine:
             self.is_trained = True
 
 # ---------------------------------------------------------------------------
-# SVR & RL ENGINES (Options, A, B, C, D)
+# SVR & RL ENGINES (Options A, B, C, D) - LOCALLY TRAINED
 # ---------------------------------------------------------------------------
 class MomentumEngine:
     def __init__(self, c_param=700.0, degree=3):
@@ -92,15 +87,11 @@ class MomentumEngine:
         except: return False
 
     def predict_series(self, X, X_macro=None, full_index=None):
-        # Fixes diagonal line: uses dates if provided, otherwise defaults to X index
         idx = full_index if full_index is not None else getattr(X, 'index', range(len(X)))
-        
         if not self.is_trained:
             return pd.Series(0.0, index=idx)
         
         raw_preds = self.model.predict(X)
-        
-        # Ensure predictions align with the index length
         if len(raw_preds) == len(idx):
             return pd.Series(raw_preds, index=idx)
         else:
@@ -116,9 +107,7 @@ class MomentumEngine:
         if os.path.exists(filepath):
             self.model = joblib.load(filepath)
             self.is_trained = True
-# ---------------------------------------------------------------------------
-# REINFORCEMENT LEARNING ENGINE
-# ---------------------------------------------------------------------------
+
 class A2CEngine:
     def __init__(self, lr=0.01):
         self.lr, self.weights, self.is_trained = lr, None, False
@@ -141,8 +130,6 @@ class A2CEngine:
         
         f = X.values if hasattr(X, 'values') else X
         raw_preds = np.tanh(np.dot(f, self.weights))
-        
-        # Ensure predictions align with index length (Fixes Diagonal Line/Crashes)
         if len(raw_preds) == len(idx):
             return pd.Series(raw_preds, index=idx)
         else:
@@ -158,9 +145,7 @@ class A2CEngine:
         if os.path.exists(filepath):
             self.weights = joblib.load(filepath)
             self.is_trained = True
-# ---------------------------------------------------------------------------
-# BAYESIAN/HMM POST-PROCESSOR (Options E, F, G, H)
-# ---------------------------------------------------------------------------
+
 def run_bayesian_filter(series):
     if not isinstance(series, pd.Series): return series
     return series.rolling(window=5, min_periods=1).mean()
