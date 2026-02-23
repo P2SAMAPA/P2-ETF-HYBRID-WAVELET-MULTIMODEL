@@ -191,6 +191,47 @@ if raw_df is not None:
         with c5:
             hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
             st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
+               st.subheader("15-Day Audit Trail")
+
+            audit_df = out["audit"].tail(15).copy()
+
+            audit_df.index = audit_df.index.strftime('%Y-%m-%d')
+
+            style_subset = [c for c in ['Return', 'Z-Score'] if c in audit_df.columns]
+
+            styled_df = audit_df.style.map(lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038', subset=style_subset).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}, na_rep="-")
+
+            st.dataframe(styled_df, use_container_width=True)
+
+
+
+            methodologies = {"Option A": "MODWT multi-resolution analysis combined with Polynomial SVR.", "Option B": "Hybrid RL-Supervised model using PPO.", "Option C": "Advantage Actor-Critic (A2C) optimizing allocation.", "Option D": "SVR-A2C Ensemble weighting.", "Option E": "Bayesian state-space filtering.", "Option F": "Hidden Markov Model (HMM) classification.", "Option G": "HMM-Biased SVR.", "Option H": "Bayesian-Denoised SVR.", "Option I": "CNN-LSTM Deep Learning.", "Option J": "Attention-Augmented CNN-LSTM.", "Option K": "Parallel Dual-Stream Deep Fusion."}
+
+            method_key = opt.split("-")[0].strip() if "-" in opt else opt.split(":")[0].strip()
+
+            st.divider()
+
+            st.markdown(f"### Methodology: {opt}")
+
+            st.write(methodologies.get(method_key, "Wavelet-based multi-resolution analysis."))
+
+            st.info(f"⚠️ **Risk Policy:** Trailing Stop Loss at {sl_input*100:.1f}%. Recovery requires Z-Score > {rec_sigma}.")
+
+        else:
+
+            st.error("Model Engine Error: Backtest returned no data.")
+
+    else:
+
+        st.info("Please wait... Loading market data.")
+
+
+
+except Exception as e:
+
+    st.error("CRITICAL UI RENDER ERROR")
+
+    st.exception(e)
 
         st.subheader("15-Day Audit Trail")
         st.dataframe(out["audit"].tail(15), use_container_width=True)
