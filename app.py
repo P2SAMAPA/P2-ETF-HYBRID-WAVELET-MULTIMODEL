@@ -92,12 +92,11 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
             logger(f"❌ Error on {ticker}: {e}")
             continue
 
-    logger("📈 Step 4: Running Portfolio Simulation...")
+   logger("📈 Step 4: Running Portfolio Simulation (STOP LOSS DISABLED)...")
     df_p = pd.DataFrame(all_preds).fillna(0)
     if df_p.empty: return None
     
     common_idx = df_p.index
-    # RECTIFIED: Removed hwm, using 2-day rolling logic instead
     equity, current_asset, in_timeout = 100.0, "CASH", False
     rets, hist, confs = [], [], []
 
@@ -105,28 +104,25 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         dp = df_p.loc[d]
         z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
         
-        # 1. Rolling 2-Day Cumulative Stop Loss (-10%)
-        # Checks the sum of the last two trading days of strategy returns
-        if len(rets) >= 2:
-            two_day_perf = rets[-1] + rets[-2]
-            if two_day_perf <= -0.10:
-                in_timeout = True
+        # --- STOP LOSS MODULE TEMPORARILY DISABLED ---
+        # Logic is bypassed to debug why models are outputting CASH
+        in_timeout = False 
         
-        # 2. Recovery Logic based on Slider Sigma
-        if in_timeout and z_score >= recovery_sigma:
-            in_timeout = False
+        # Decision Logic: Always Winner Takes All
+        final_sig = dp.idxmax()
         
-        # 3. Decision Logic: Winner Takes All unless in Stop Loss Timeout
-        # Removed the hurdle: dp.max() < -0.01
-        final_sig = "CASH" if in_timeout else dp.idxmax()
-        
-        # 4. Execution & Transaction Costs
+        # --- TRANSACTION COSTS ---
+        # Irrespective of stop loss; triggers whenever the asset selection changes
         if final_sig != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = final_sig
             
-        # 5. Daily Return Calculation
-        day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252 if current_asset == "CASH" else raw_df.loc[d, f"{current_asset}_Ret"]
+        # Daily Return Calculation
+        if current_asset == "CASH":
+            day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252
+        else:
+            day_r = raw_df.loc[d, f"{current_asset}_Ret"]
+            
         equity *= (1 + day_r)
         
         rets.append(day_r)
@@ -136,7 +132,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     # Building the Results DataFrame
     res = pd.DataFrame(index=common_idx)
     res["Strategy_Ret"] = rets
-    # Using the calculated equity directly to maintain precision
     res["Equity"] = (pd.Series(rets) + 1).cumprod().values * 100
     res["Drawdown"] = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
     
@@ -156,7 +151,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         "conf": float(confs[-1]), 
         "date": common_idx[-1].strftime('%Y-%m-%d')
     }
-
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("Terminal Config")
