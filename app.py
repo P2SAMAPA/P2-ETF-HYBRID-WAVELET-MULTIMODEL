@@ -215,7 +215,7 @@ with st.sidebar:
     ])
     sl_input = st.slider("Trailing Stop Loss (%)", 8.0, 20.0, 10.0, 0.5) / 100
     # RECTIFIED: Updated range to 0.75 - 2.0
-    rec_sigma = st.slider("Recovery Threshold (Sigma)", 0.75, 2.0, 1.1, 0.05)
+    rec_sigma = st.slider("Recovery Threshold (Sigma)", 0.75, 2.0, 0.80, 0.05)
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
 raw_df = st.session_state.get('raw_df')
