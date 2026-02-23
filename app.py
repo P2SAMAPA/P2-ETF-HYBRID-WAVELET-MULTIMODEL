@@ -93,26 +93,24 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
             continue
 
     logger("📈 Step 4: Running Portfolio Simulation (STOP LOSS DISABLED)...")
-            df_p = pd.DataFrame(all_preds).fillna(0)
-            if df_p.empty: return None
+    df_p = pd.DataFrame(all_preds).fillna(0)
+    if df_p.empty: return None
     
-            common_idx = df_p.index
-            equity, current_asset, in_timeout = 100.0, "CASH", False
-            rets, hist, confs = [], [], []
+    common_idx = df_p.index
+    equity, current_asset, in_timeout = 100.0, "CASH", False
+    rets, hist, confs = [], [], []
 
-            for i, d in enumerate(common_idx):
-                dp = df_p.loc[d]
-                z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
+    for i, d in enumerate(common_idx):
+        dp = df_p.loc[d]
+        z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
         
         # --- STOP LOSS MODULE TEMPORARILY DISABLED ---
-        # Logic is bypassed to debug why models are outputting CASH
         in_timeout = False 
         
         # Decision Logic: Always Winner Takes All
         final_sig = dp.idxmax()
         
         # --- TRANSACTION COSTS ---
-        # Irrespective of stop loss; triggers whenever the asset selection changes
         if final_sig != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = final_sig
