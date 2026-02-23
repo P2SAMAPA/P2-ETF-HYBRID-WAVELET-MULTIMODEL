@@ -6,9 +6,6 @@ from sklearn.pipeline import Pipeline
 import joblib
 import os
 
-# ---------------------------------------------------------------------------
-# DEEP LEARNING ENGINES (Options I, J, K) - CLOUD TRAINED
-# ---------------------------------------------------------------------------
 class DeepHybridEngine:
     def __init__(self, mode="Option K", lookback=20):
         self.mode = mode
@@ -36,11 +33,13 @@ class DeepHybridEngine:
         return Model(inputs=[price_in, macro_in], outputs=out)
 
     def train(self, X, y):
+        # Cloud models are pre-trained; this is a safety fallback
+        if self.is_trained: return True
         n_price = X.shape[2]
         X_macro = np.zeros((X.shape[0], 8)) 
         self.model = self._build_parallel_model(n_price, 8)
         self.model.compile(optimizer='adam', loss='mse')
-        self.model.fit([X, X_macro], y, epochs=5, batch_size=32, verbose=0)
+        self.model.fit([X, X_macro], y, epochs=1, batch_size=32, verbose=0)
         self.is_trained = True
         return True
 
@@ -52,10 +51,9 @@ class DeepHybridEngine:
         if X_macro is None:
             X_macro = np.zeros((X.shape[0], 8))
             
+        # RECTIFICATION: Direct prediction without dangerous manual padding
         raw_preds = self.model.predict([X, X_macro], verbose=0).flatten()
-        preds = np.zeros(len(idx))
-        preds[-len(raw_preds):] = raw_preds
-        return pd.Series(preds, index=idx)
+        return pd.Series(raw_preds, index=idx)
 
     def save(self, filepath):
         if self.model:
@@ -64,13 +62,12 @@ class DeepHybridEngine:
 
     def load(self, filepath):
         from tensorflow.keras.models import load_model
+        from tensorflow.keras import backend as K
         if os.path.exists(filepath):
+            K.clear_session() # Prevent memory leaks in Streamlit
             self.model = load_model(filepath)
             self.is_trained = True
 
-# ---------------------------------------------------------------------------
-# SVR & RL ENGINES (Options A, B, C, D) - LOCALLY TRAINED
-# ---------------------------------------------------------------------------
 class MomentumEngine:
     def __init__(self, c_param=700.0, degree=3):
         self.is_trained = False
@@ -88,16 +85,8 @@ class MomentumEngine:
 
     def predict_series(self, X, X_macro=None, full_index=None):
         idx = full_index if full_index is not None else getattr(X, 'index', range(len(X)))
-        if not self.is_trained:
-            return pd.Series(0.0, index=idx)
-        
-        raw_preds = self.model.predict(X)
-        if len(raw_preds) == len(idx):
-            return pd.Series(raw_preds, index=idx)
-        else:
-            final_preds = np.zeros(len(idx))
-            final_preds[-len(raw_preds):] = raw_preds
-            return pd.Series(final_preds, index=idx)
+        if not self.is_trained: return pd.Series(0.0, index=idx)
+        return pd.Series(self.model.predict(X), index=idx)
 
     def save(self, filepath):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -125,17 +114,10 @@ class A2CEngine:
 
     def predict_series(self, X, X_macro=None, full_index=None):
         idx = full_index if full_index is not None else (X.index if hasattr(X, 'index') else range(len(X)))
-        if not self.is_trained: 
-            return pd.Series(0.0, index=idx)
-        
+        if not self.is_trained: return pd.Series(0.0, index=idx)
         f = X.values if hasattr(X, 'values') else X
         raw_preds = np.tanh(np.dot(f, self.weights))
-        if len(raw_preds) == len(idx):
-            return pd.Series(raw_preds, index=idx)
-        else:
-            final_preds = np.zeros(len(idx))
-            final_preds[-len(raw_preds):] = raw_preds
-            return pd.Series(final_preds, index=idx)
+        return pd.Series(raw_preds, index=idx)
 
     def save(self, filepath):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
