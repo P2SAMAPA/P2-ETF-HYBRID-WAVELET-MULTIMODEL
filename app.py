@@ -97,27 +97,46 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     if df_p.empty: return None
     
     common_idx = df_p.index
-    equity, current_asset, hwm, in_timeout = 100.0, "CASH", 100.0, False
+    # RECTIFIED: Removed hwm, using 2-day rolling logic instead
+    equity, current_asset, in_timeout = 100.0, "CASH", False
     rets, hist, confs = [], [], []
 
-    for d in common_idx:
+    for i, d in enumerate(common_idx):
         dp = df_p.loc[d]
         z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
-        hwm = max(hwm, equity)
-        if (equity - hwm) / hwm <= -stop_loss_pct: in_timeout = True 
-        if in_timeout and z_score >= recovery_sigma: in_timeout = False
         
-        final_sig = "CASH" if in_timeout or dp.max() < -0.01 else dp.idxmax()
+        # 1. Rolling 2-Day Cumulative Stop Loss (-10%)
+        # Checks the sum of the last two trading days of strategy returns
+        if len(rets) >= 2:
+            two_day_perf = rets[-1] + rets[-2]
+            if two_day_perf <= -0.10:
+                in_timeout = True
         
+        # 2. Recovery Logic based on Slider Sigma
+        if in_timeout and z_score >= recovery_sigma:
+            in_timeout = False
+        
+        # 3. Decision Logic: Winner Takes All unless in Stop Loss Timeout
+        # Removed the hurdle: dp.max() < -0.01
+        final_sig = "CASH" if in_timeout else dp.idxmax()
+        
+        # 4. Execution & Transaction Costs
         if final_sig != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = final_sig
+            
+        # 5. Daily Return Calculation
         day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252 if current_asset == "CASH" else raw_df.loc[d, f"{current_asset}_Ret"]
         equity *= (1 + day_r)
-        rets.append(day_r); hist.append(current_asset); confs.append(z_score)
+        
+        rets.append(day_r)
+        hist.append(current_asset)
+        confs.append(z_score)
 
+    # Building the Results DataFrame
     res = pd.DataFrame(index=common_idx)
     res["Strategy_Ret"] = rets
+    # Using the calculated equity directly to maintain precision
     res["Equity"] = (pd.Series(rets) + 1).cumprod().values * 100
     res["Drawdown"] = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
     
@@ -125,10 +144,18 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         if comp in raw_df.columns:
             res[comp] = (raw_df.loc[common_idx, comp].ffill() / raw_df.loc[common_idx, comp].ffill().iloc[0]) * 100
     
-    if "TBILL_3M" in raw_df.columns: res["TBILL_3M"] = raw_df.loc[common_idx, "TBILL_3M"]
+    if "TBILL_3M" in raw_df.columns: 
+        res["TBILL_3M"] = raw_df.loc[common_idx, "TBILL_3M"]
 
     audit_df = pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx)
-    return {"df": res.ffill().fillna(100.0), "audit": audit_df, "target": str(hist[-1]), "conf": float(confs[-1]), "date": common_idx[-1].strftime('%Y-%m-%d')}
+    
+    return {
+        "df": res.ffill().fillna(100.0), 
+        "audit": audit_df, 
+        "target": str(hist[-1]), 
+        "conf": float(confs[-1]), 
+        "date": common_idx[-1].strftime('%Y-%m-%d')
+    }
 
 # --- SIDEBAR ---
 with st.sidebar:
