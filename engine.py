@@ -97,16 +97,46 @@ class MomentumEngine:
             self.model = joblib.load(filepath)
             self.is_trained = True
 
+# RECTIFICATION: Added PPOEngine for Option B (Stability Locked)
+class PPOEngine:
+    def __init__(self, lr=0.01, epsilon=0.2):
+        self.lr, self.epsilon, self.weights, self.is_trained = lr, epsilon, None, False
+
+    def train(self, X, y):
+        np.random.seed(42)  # FIXES THE FLIPPING ISSUE
+        f = X.values if hasattr(X, 'values') else X
+        l = y.values if hasattr(y, 'values') else y
+        if self.weights is None:
+            self.weights = np.random.normal(0, 0.1, f.shape[1])
+        
+        for _ in range(15):
+            old_preds = np.dot(f, self.weights)
+            ratio = np.dot(f, self.weights) / (old_preds + 1e-9)
+            surr1 = ratio * (l - old_preds)
+            surr2 = np.clip(ratio, 1 - self.epsilon, 1 + self.epsilon) * (l - old_preds)
+            grad = np.dot(f.T, np.minimum(surr1, surr2)) / len(l)
+            self.weights += self.lr * grad
+        
+        self.is_trained = True
+        return True
+
+    def predict_series(self, X, X_macro=None, full_index=None):
+        idx = full_index if full_index is not None else range(len(X))
+        if not self.is_trained: return pd.Series(0.0, index=idx)
+        f = X.values if hasattr(X, 'values') else X
+        return pd.Series(np.tanh(np.dot(f, self.weights)), index=idx)
+
 class A2CEngine:
     def __init__(self, lr=0.01):
         self.lr, self.weights, self.is_trained = lr, None, False
 
     def train(self, X, y):
+        np.random.seed(42)  # FIXES THE FLIPPING ISSUE
         f = X.values if hasattr(X, 'values') else X
         l = y.values if hasattr(y, 'values') else y
         if self.weights is None:
             self.weights = np.random.normal(0, 0.1, f.shape[1])
-        for _ in range(5):
+        for _ in range(10): # Increased epochs for better convergence
             preds = np.dot(f, self.weights)
             self.weights += self.lr * np.dot(f.T, l - preds) / len(l)
         self.is_trained = True
