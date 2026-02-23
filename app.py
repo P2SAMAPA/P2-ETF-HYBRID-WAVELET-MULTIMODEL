@@ -171,7 +171,7 @@ if raw_df is not None:
             <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Z-Score: {float(out.get('conf', 0)):.2f}σ</p>
         </div>""", unsafe_allow_html=True)
         
-       c1, c2, c3, c4, c5 = st.columns(5)
+        c1, c2, c3, c4, c5 = st.columns(5)
         ann_ret = float((df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1)
         strat_std = df['Strategy_Ret'].std()
         sharpe = float((df['Strategy_Ret'].mean() / strat_std) * np.sqrt(252)) if strat_std != 0 else 0.0
