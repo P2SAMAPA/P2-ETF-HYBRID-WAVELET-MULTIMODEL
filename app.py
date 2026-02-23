@@ -4,7 +4,8 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from data.loader import load_raw_data
-from engine import MomentumEngine, A2CEngine, DeepHybridEngine
+# RECTIFIED: Added PPOEngine to imports
+from engine import MomentumEngine, A2CEngine, PPOEngine, DeepHybridEngine, run_bayesian_filter
 from analytics.regime import RegimeHMM, BayesianFilter 
 
 # --- CONFIG & THEME ---
@@ -50,7 +51,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     
     for ticker in predict_assets:
         try:
-            # Features are now scaled inside processor.py
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             m_oos = idx.year >= start_yr
             oos_indices = np.where(m_oos)[0]
@@ -62,7 +62,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
                 fname = {"Option I": "opt_i_cnn.h5", "Option J": "opt_j_cnn_lstm.h5", "Option K": "opt_k_hybrid.h5"}[mode_key]
                 eng.load(f"models/{fname}")
                 
-                # RECTIFIED: Robust 3D Windowing
                 X_3d_list = []
                 for i in oos_indices:
                     start_idx = max(0, i - 19)
@@ -75,7 +74,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
                 X_macro = None
                 if "Option K" in model_choice:
                     m_df = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].copy()
-                    # Placeholder for engineered macro features used in Cloud training
                     m_df["Mom"], m_df["Vol"], m_df["SPY"] = 0.0, 0.0, 0.0 
                     X_macro = m_df.values
                 
@@ -84,11 +82,21 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
             # --- LOCAL MODELS (A-H) ---
             else:
                 m_is = idx.year < start_yr
-                eng = A2CEngine() if any(opt in model_choice for opt in ["Option B", "Option C", "Option D"]) else MomentumEngine()
+                # RECTIFIED: Specific routing for Option B (PPO) and C/D (A2C)
+                if "Option B" in model_choice:
+                    eng = PPOEngine()
+                elif any(opt in model_choice for opt in ["Option C", "Option D"]):
+                    eng = A2CEngine()
+                else:
+                    eng = MomentumEngine()
+
                 eng.train(X[m_is], y[m_is])
                 preds = eng.predict_series(X[m_oos])
+                
+                # RECTIFIED: Apply Bayesian smoothing for E and H
+                if any(opt in model_choice for opt in ["Option E", "Option H"]):
+                    preds = run_bayesian_filter(preds)
 
-            # Sync predictions to the OOS index
             all_preds[ticker] = pd.Series(preds.values if hasattr(preds, 'values') else preds, index=idx[m_oos])
             
         except Exception as e:
@@ -102,15 +110,12 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     equity, current_asset = 100.0, "CASH"
     rets, hist, confs = [], [], []
 
-    # --- PORTFOLIO LOOP ---
     for i, d in enumerate(common_idx):
         dp = df_p.loc[d]
-        
-        # RECTIFIED: Z-Score logic to prevent 0.00σ
         std_val = dp.std()
         z_score = (dp.max() - dp.mean()) / std_val if std_val > 1e-6 else 0.0
         
-        # Allocation Logic
+        # Allocation Logic - Picks the best ETF, falls to CASH only if no signal
         final_sig = dp.idxmax() if dp.max() > 0 else "CASH"
         
         if final_sig != current_asset:
@@ -127,7 +132,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         hist.append(current_asset)
         confs.append(z_score)
 
-    # Compile Results
     res = pd.DataFrame(index=common_idx)
     res["Strategy_Ret"] = rets
     res["Equity"] = (pd.Series(rets) + 1).cumprod().values * 100
@@ -147,7 +151,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         "date": common_idx[-1].strftime('%Y-%m-%d')
     }
 
-# --- SIDEBAR ---
+# --- SIDEBAR & UI RENDER (Unchanged as requested) ---
 with st.sidebar:
     st.header("Terminal Config")
     st.info("💡 Options I, J, K are cloud-trained (2008-2026). Options A-H retrain locally.")
@@ -172,7 +176,6 @@ with st.sidebar:
 
 raw_df = st.session_state.get('raw_df')
 
-# --- UI EXECUTION ---
 if raw_df is not None:
     try:
         with st.status("🔍 Engine Heartbeat", expanded=False) as status:
@@ -182,14 +185,12 @@ if raw_df is not None:
             df = out["df"]
             st.title("P2 Wavelet Multi-Model")
             
-            # Big Prediction Box
             st.markdown(f"""<div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
                 <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction: {get_next_trading_day_simple()}</p>
                 <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out.get('target', 'CASH')}</h1>
                 <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Z-Score: {float(out.get('conf', 0)):.2f}σ</p>
             </div>""", unsafe_allow_html=True)
             
-            # Metrics Row
             c1, c2, c3, c4, c5 = st.columns(5)
             ann_ret = (df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1
             strat_std = df['Strategy_Ret'].std()
@@ -204,13 +205,11 @@ if raw_df is not None:
                 hit_ratio = (df["Strategy_Ret"].tail(15) > 0).mean()
                 st.metric("Hit Ratio (15D)", f"{hit_ratio:.1%}")
 
-            # Audit Trail
             st.subheader("15-Day Audit Trail")
             audit_display = out["audit"].tail(15).copy()
             audit_display.index = audit_display.index.strftime('%Y-%m-%d')
             st.dataframe(audit_display.style.format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}), use_container_width=True)
 
-            # Methodology Section (COMPLETED)
             methodologies = {
                 "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR.",
                 "Option B": "Hybrid RL-Supervised model using PPO.",
