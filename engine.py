@@ -5,7 +5,11 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 import joblib
 import os
+from analytics.regime import BayesianFilter 
 
+# ---------------------------------------------------------------------------
+# DEEP LEARNING ENGINES (Options I, J, K)
+# ---------------------------------------------------------------------------
 class DeepHybridEngine:
     def __init__(self, mode="Option K", lookback=20):
         self.mode = mode
@@ -33,7 +37,6 @@ class DeepHybridEngine:
         return Model(inputs=[price_in, macro_in], outputs=out)
 
     def train(self, X, y):
-        # Cloud models are pre-trained; this is a safety fallback
         if self.is_trained: return True
         n_price = X.shape[2]
         X_macro = np.zeros((X.shape[0], 8)) 
@@ -51,7 +54,6 @@ class DeepHybridEngine:
         if X_macro is None:
             X_macro = np.zeros((X.shape[0], 8))
             
-        # RECTIFICATION: Direct prediction without dangerous manual padding
         raw_preds = self.model.predict([X, X_macro], verbose=0).flatten()
         return pd.Series(raw_preds, index=idx)
 
@@ -64,10 +66,13 @@ class DeepHybridEngine:
         from tensorflow.keras.models import load_model
         from tensorflow.keras import backend as K
         if os.path.exists(filepath):
-            K.clear_session() # Prevent memory leaks in Streamlit
+            K.clear_session() 
             self.model = load_model(filepath)
             self.is_trained = True
 
+# ---------------------------------------------------------------------------
+# LOCAL MACHINE LEARNING ENGINES (Options A, G, H)
+# ---------------------------------------------------------------------------
 class MomentumEngine:
     def __init__(self, c_param=700.0, degree=3):
         self.is_trained = False
@@ -97,13 +102,15 @@ class MomentumEngine:
             self.model = joblib.load(filepath)
             self.is_trained = True
 
-# RECTIFICATION: Added PPOEngine for Option B (Stability Locked)
+# ---------------------------------------------------------------------------
+# REINFORCEMENT LEARNING ENGINES (Options B, C, D)
+# ---------------------------------------------------------------------------
 class PPOEngine:
     def __init__(self, lr=0.01, epsilon=0.2):
         self.lr, self.epsilon, self.weights, self.is_trained = lr, epsilon, None, False
 
     def train(self, X, y):
-        np.random.seed(42)  # FIXES THE FLIPPING ISSUE
+        np.random.seed(42) 
         f = X.values if hasattr(X, 'values') else X
         l = y.values if hasattr(y, 'values') else y
         if self.weights is None:
@@ -131,12 +138,12 @@ class A2CEngine:
         self.lr, self.weights, self.is_trained = lr, None, False
 
     def train(self, X, y):
-        np.random.seed(42)  # FIXES THE FLIPPING ISSUE
+        np.random.seed(42) 
         f = X.values if hasattr(X, 'values') else X
         l = y.values if hasattr(y, 'values') else y
         if self.weights is None:
             self.weights = np.random.normal(0, 0.1, f.shape[1])
-        for _ in range(10): # Increased epochs for better convergence
+        for _ in range(10):
             preds = np.dot(f, self.weights)
             self.weights += self.lr * np.dot(f.T, l - preds) / len(l)
         self.is_trained = True
@@ -158,6 +165,32 @@ class A2CEngine:
             self.weights = joblib.load(filepath)
             self.is_trained = True
 
+# ---------------------------------------------------------------------------
+# AGGRESSIVE BAYESIAN FILTER (Options E, H)
+# ---------------------------------------------------------------------------
 def run_bayesian_filter(series):
-    if not isinstance(series, pd.Series): return series
-    return series.rolling(window=5, min_periods=1).mean()
+    """
+    Applies the Bayesian confidence logic.
+    We lowered the threshold and used signal-scaling to prevent 
+    Models E and H from getting stuck in CASH.
+    """
+    if not isinstance(series, pd.Series) or len(series) < 10: 
+        return series
+    
+    bf = BayesianFilter()
+    
+    # Calculate rolling probability trend is structural
+    conf_scores = series.rolling(window=15, min_periods=5).apply(bf.get_confidence)
+    
+    adjusted_series = series.copy()
+    threshold = 0.60 # Aggressive: allow signals if confidence > 60%
+    
+    mask = conf_scores >= threshold
+    # If below threshold, force to CASH (0.0)
+    adjusted_series[~mask] = 0.0 
+    
+    # If above threshold, multiply original signal by its confidence score
+    # This acts as a 'conviction-based' position sizing
+    adjusted_series[mask] = series[mask] * conf_scores[mask]
+    
+    return adjusted_series
