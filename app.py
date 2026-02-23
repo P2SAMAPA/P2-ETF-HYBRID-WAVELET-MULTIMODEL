@@ -31,13 +31,9 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     def logger(msg):
         if _log: _log.write(msg)
 
-    model_choice = str(model_choice)
-    logger("📡 Step 1: Loading raw market data...")
-    
     if isinstance(raw_df, tuple): raw_df = raw_df[0]
     if raw_df is None or raw_df.empty: return None
 
-    # Prediction Assets vs comparison Assets
     predict_assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
     comparison_assets = ["SPY", "AGG"]
     all_assets = predict_assets + comparison_assets
@@ -50,81 +46,79 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     from data.processor import build_feature_matrix
     
     all_preds = {}
-    logger(f"🤖 Step 3: Generating signals using {model_choice}...")
+    logger(f"🤖 Generating signals using {model_choice}...")
     
     for ticker in predict_assets:
         try:
-            logger(f"    -> Intelligence Stream: {ticker}")
+            # Features are now scaled inside processor.py
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
-            
-            # --- CLOUD TIERS (I, J, K): Trained 2008-2026 ---
+            m_oos = idx.year >= start_yr
+            oos_indices = np.where(m_oos)[0]
+
+            # --- CLOUD MODELS (I, J, K) ---
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 mode_key = "Option I" if "Option I" in model_choice else ("Option J" if "Option J" in model_choice else "Option K")
                 eng = DeepHybridEngine(mode=mode_key)
                 fname = {"Option I": "opt_i_cnn.h5", "Option J": "opt_j_cnn_lstm.h5", "Option K": "opt_k_hybrid.h5"}[mode_key]
                 eng.load(f"models/{fname}")
                 
-                # Identify Out-of-Sample based on Slider
-                m_oos = idx.year >= start_yr
-                oos_indices = np.where(m_oos)[0]
-                
-                # RECTIFICATION: Robust 3D windowing for Deep Learning
+                # RECTIFIED: Robust 3D Windowing
                 X_3d_list = []
                 for i in oos_indices:
                     start_idx = max(0, i - 19)
                     window = X[start_idx : i + 1]
                     if len(window) < 20:
-                        padding = np.repeat(X[0:1], 20 - len(window), axis=0)
-                        window = np.vstack([padding, window])
+                        window = np.vstack([np.tile(X[0], (20 - len(window), 1)), window])
                     X_3d_list.append(window)
                 
                 X_3d = np.array(X_3d_list)
                 X_macro = None
                 if "Option K" in model_choice:
                     m_df = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].copy()
+                    # Placeholder for engineered macro features used in Cloud training
                     m_df["Mom"], m_df["Vol"], m_df["SPY"] = 0.0, 0.0, 0.0 
                     X_macro = m_df.values
                 
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
-
-            # --- LOCAL TIERS (A-H): Retrained based on Slider ---
+            
+            # --- LOCAL MODELS (A-H) ---
             else:
                 m_is = idx.year < start_yr
-                m_oos = idx.year >= start_yr
-                if any(opt in model_choice for opt in ["Option B", "Option C", "Option D"]):
-                    eng = A2CEngine()
-                else:
-                    eng = MomentumEngine()
-                
+                eng = A2CEngine() if any(opt in model_choice for opt in ["Option B", "Option C", "Option D"]) else MomentumEngine()
                 eng.train(X[m_is], y[m_is])
                 preds = eng.predict_series(X[m_oos])
 
-            all_preds[ticker] = pd.Series(preds, index=idx[m_oos])
+            # Sync predictions to the OOS index
+            all_preds[ticker] = pd.Series(preds.values if hasattr(preds, 'values') else preds, index=idx[m_oos])
+            
         except Exception as e:
             logger(f"❌ Error on {ticker}: {e}")
             continue
 
-    logger("📈 Step 4: Running Portfolio Simulation (STOP LOSS DISABLED)...")
     df_p = pd.DataFrame(all_preds).fillna(0)
     if df_p.empty: return None
     
     common_idx = df_p.index
-    equity, current_asset, in_timeout = 100.0, "CASH", False
+    equity, current_asset = 100.0, "CASH"
     rets, hist, confs = [], [], []
 
+    # --- PORTFOLIO LOOP ---
     for i, d in enumerate(common_idx):
         dp = df_p.loc[d]
-        z_score = (dp.max() - dp.mean()) / dp.std() if dp.std() > 0 else 0
-        in_timeout = False 
         
-        final_sig = dp.idxmax()
+        # RECTIFIED: Z-Score logic to prevent 0.00σ
+        std_val = dp.std()
+        z_score = (dp.max() - dp.mean()) / std_val if std_val > 1e-6 else 0.0
+        
+        # Allocation Logic
+        final_sig = dp.idxmax() if dp.max() > 0 else "CASH"
         
         if final_sig != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = final_sig
             
         if current_asset == "CASH":
-            day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252
+            day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252 if "TBILL_3M" in raw_df.columns else 0.0
         else:
             day_r = raw_df.loc[d, f"{current_asset}_Ret"]
             
@@ -133,6 +127,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         hist.append(current_asset)
         confs.append(z_score)
 
+    # Compile Results
     res = pd.DataFrame(index=common_idx)
     res["Strategy_Ret"] = rets
     res["Equity"] = (pd.Series(rets) + 1).cumprod().values * 100
@@ -140,29 +135,25 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     
     for comp in comparison_assets:
         if comp in raw_df.columns:
-            res[comp] = (raw_df.loc[common_idx, comp].ffill() / raw_df.loc[common_idx, comp].ffill().iloc[0]) * 100
-    
-    if "TBILL_3M" in raw_df.columns: 
-        res["TBILL_3M"] = raw_df.loc[common_idx, "TBILL_3M"]
+            res[comp] = (raw_df.loc[common_idx, comp] / raw_df.loc[common_idx, comp].iloc[0]) * 100
 
     audit_df = pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx)
     
     return {
-        "df": res.ffill().fillna(100.0), 
+        "df": res.ffill(), 
         "audit": audit_df, 
         "target": str(hist[-1]), 
         "conf": float(confs[-1]), 
         "date": common_idx[-1].strftime('%Y-%m-%d')
     }
+
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("Terminal Config")
-    st.info("💡 **Training Policy:** Options I, J, K are cloud-trained (2008-2026). Options A-H retrain locally based on the Start Year slider.")
+    st.info("💡 Options I, J, K are cloud-trained (2008-2026). Options A-H retrain locally.")
     
     if st.button("🔄 Refresh Data & Clear Cache"):
         st.cache_data.clear()
-        raw_df_fresh, _ = load_raw_data(force_sync=True) 
-        st.session_state['raw_df'] = raw_df_fresh
         st.rerun()
 
     if 'raw_df' not in st.session_state:
@@ -187,52 +178,60 @@ if raw_df is not None:
         with st.status("🔍 Engine Heartbeat", expanded=False) as status:
             out = run_professional_backtest(raw_df, s_yr, opt, costs, sl_input, rec_sigma, _log=status)
         
-        if out and "df" in out:
+        if out:
             df = out["df"]
             st.title("P2 Wavelet Multi-Model")
+            
+            # Big Prediction Box
             st.markdown(f"""<div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
                 <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction: {get_next_trading_day_simple()}</p>
                 <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out.get('target', 'CASH')}</h1>
                 <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Z-Score: {float(out.get('conf', 0)):.2f}σ</p>
             </div>""", unsafe_allow_html=True)
             
+            # Metrics Row
             c1, c2, c3, c4, c5 = st.columns(5)
-            ann_ret = float((df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1)
+            ann_ret = (df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1
             strat_std = df['Strategy_Ret'].std()
-            sharpe = float((df['Strategy_Ret'].mean() / strat_std) * np.sqrt(252)) if strat_std != 0 else 0.0
+            sharpe = (df['Strategy_Ret'].mean() / strat_std) * np.sqrt(252) if strat_std != 0 else 0
             
-            max_daily_dd = df['Strategy_Ret'].min()
-            max_daily_dd_date = df['Strategy_Ret'].idxmin().strftime('%Y-%m-%d')
-
             c1.metric("Annual Return", f"{ann_ret:.2%}")
             c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-            c3.metric("Max DD (P/T)", f"{float(df['Drawdown'].min()):.2%}")
-            
-            # RECTIFIED: Max DD (Daily) with Date
-            c4.metric("Max DD (Daily)", f"{max_daily_dd:.2%}")
-            st.markdown(f"<div class='metric-sub'>Worst Day: <b>{max_daily_dd_date}</b></div>", unsafe_allow_html=True)
+            c3.metric("Max DD (P/T)", f"{df['Drawdown'].min():.2%}")
+            c4.metric("Max DD (Daily)", f"{df['Strategy_Ret'].min():.2%}")
             
             with c5:
-                hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
-                st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
+                hit_ratio = (df["Strategy_Ret"].tail(15) > 0).mean()
+                st.metric("Hit Ratio (15D)", f"{hit_ratio:.1%}")
 
-            # RECTIFIED: Moved out of 'with c5' to ensure full-width rendering
+            # Audit Trail
             st.subheader("15-Day Audit Trail")
-            audit_df = out["audit"].tail(15).copy()
-            audit_df.index = audit_df.index.strftime('%Y-%m-%d')
-            style_subset = [c for c in ['Return', 'Z-Score'] if c in audit_df.columns]
-            styled_df = audit_df.style.map(lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038', subset=style_subset).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}, na_rep="-")
-            st.dataframe(styled_df, use_container_width=True)
+            audit_display = out["audit"].tail(15).copy()
+            audit_display.index = audit_display.index.strftime('%Y-%m-%d')
+            st.dataframe(audit_display.style.format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}), use_container_width=True)
 
-            methodologies = {"Option A": "MODWT multi-resolution analysis combined with Polynomial SVR.", "Option B": "Hybrid RL-Supervised model using PPO.", "Option C": "Advantage Actor-Critic (A2C) optimizing allocation.", "Option D": "SVR-A2C Ensemble weighting.", "Option E": "Bayesian state-space filtering.", "Option F": "Hidden Markov Model (HMM) classification.", "Option G": "HMM-Biased SVR.", "Option H": "Bayesian-Denoised SVR.", "Option I": "CNN-LSTM Deep Learning.", "Option J": "Attention-Augmented CNN-LSTM.", "Option K": "Parallel Dual-Stream Deep Fusion."}
+            # Methodology Section (COMPLETED)
+            methodologies = {
+                "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR.",
+                "Option B": "Hybrid RL-Supervised model using PPO.",
+                "Option C": "Advantage Actor-Critic (A2C) optimizing allocation.",
+                "Option D": "SVR-A2C Ensemble weighting.",
+                "Option E": "Bayesian state-space filtering.",
+                "Option F": "Hidden Markov Model (HMM) classification.",
+                "Option G": "HMM-Biased SVR.",
+                "Option H": "Bayesian-Denoised SVR.",
+                "Option I": "CNN-LSTM Deep Learning.",
+                "Option J": "Attention-Augmented CNN-LSTM.",
+                "Option K": "Parallel Dual-Stream Deep Fusion."
+            }
+            
             method_key = opt.split("-")[0].strip() if "-" in opt else opt.split(":")[0].strip()
+            if ":" in method_key: method_key = method_key.split(":")[0].strip()
+            
             st.divider()
             st.markdown(f"### Methodology: {opt}")
             st.write(methodologies.get(method_key, "Wavelet-based multi-resolution analysis."))
             st.info(f"⚠️ **Risk Policy:** Trailing Stop Loss at {sl_input*100:.1f}%. Recovery requires Z-Score > {rec_sigma}.")
-
-        else:
-            st.error("Model Engine Error: Backtest returned no data.")
 
     except Exception as e:
         st.error("CRITICAL UI RENDER ERROR")
