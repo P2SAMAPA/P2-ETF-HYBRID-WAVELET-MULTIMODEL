@@ -218,27 +218,27 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     with st.sidebar:
         st.header("Terminal Config")
     
-    # 1. Combined Refresh Logic
-    if st.button("🔄 Refresh Data & Clear Cache"):
-        st.cache_data.clear()
-        
-        # Trigger sync and update session state immediately
-        raw_df_fresh, msg = load_raw_data(force_sync=True) 
-        st.session_state['raw_df'] = raw_df_fresh
-        
-        st.success(msg)
-        if raw_df_fresh is not None and not raw_df_fresh.empty:
-            st.toast(f"Data Synced: {raw_df_fresh.index[-1].strftime('%Y-%m-%d')}")
-        
-        st.rerun()
+        # 1. Combined Refresh Logic
+        if st.button("🔄 Refresh Data & Clear Cache"):
+            st.cache_data.clear()
+            
+            # Trigger sync and update session state immediately
+            raw_df_fresh, msg = load_raw_data(force_sync=True) 
+            st.session_state['raw_df'] = raw_df_fresh
+            
+            st.success(msg)
+            if raw_df_fresh is not None and not raw_df_fresh.empty:
+                st.toast(f"Data Synced: {raw_df_fresh.index[-1].strftime('%Y-%m-%d')}")
+            
+            st.rerun()
 
-    # 2. Optimized Load Logic (STOP THE FLICKERING)
-    if 'raw_df' not in st.session_state:
-        raw_df_init, msg = load_raw_data(force_sync=False)
-        st.session_state['raw_df'] = raw_df_init
+        # 2. Optimized Load Logic
+        if 'raw_df' not in st.session_state:
+            raw_df_init, msg = load_raw_data(force_sync=False)
+            st.session_state['raw_df'] = raw_df_init
 
-    # --- GLOBAL SCOPE RECTIFICATION ---
-    # This line ensures 'raw_df' is always defined for the backtest engine (Line 273)
+    # --- CRITICAL RECTIFICATION: Global Scope Assignment ---
+    # This ensures 'raw_df' exists before Line 272 is reached
     raw_df = st.session_state.get('raw_df')
     
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
