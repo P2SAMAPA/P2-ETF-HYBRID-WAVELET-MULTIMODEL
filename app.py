@@ -159,68 +159,60 @@ raw_df = st.session_state.get('raw_df')
 
 # --- UI EXECUTION ---
 if raw_df is not None:
-    with st.status("🔍 Engine Heartbeat", expanded=False) as status:
-        out = run_professional_backtest(raw_df, s_yr, opt, costs, sl_input, rec_sigma, _log=status)
-    
-    if out and "df" in out:
-        df = out["df"]
-        st.title("P2 Wavelet Multi-Model")
-        st.markdown(f"""<div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
-            <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction: {get_next_trading_day_simple()}</p>
-            <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out.get('target', 'CASH')}</h1>
-            <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Z-Score: {float(out.get('conf', 0)):.2f}σ</p>
-        </div>""", unsafe_allow_html=True)
+    try: # Added try block to match the except Exception as e below
+        with st.status("🔍 Engine Heartbeat", expanded=False) as status:
+            out = run_professional_backtest(raw_df, s_yr, opt, costs, sl_input, rec_sigma, _log=status)
         
-        c1, c2, c3, c4, c5 = st.columns(5)
-        ann_ret = float((df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1)
-        strat_std = df['Strategy_Ret'].std()
-        sharpe = float((df['Strategy_Ret'].mean() / strat_std) * np.sqrt(252)) if strat_std != 0 else 0.0
-        
-        # Finding the worst daily return and its date
-        max_daily_dd = df['Strategy_Ret'].min()
-        max_daily_dd_date = df['Strategy_Ret'].idxmin().strftime('%Y-%m-%d')
+        if out and "df" in out:
+            df = out["df"]
+            st.title("P2 Wavelet Multi-Model")
+            st.markdown(f"""<div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
+                <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction: {get_next_trading_day_simple()}</p>
+                <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out.get('target', 'CASH')}</h1>
+                <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Z-Score: {float(out.get('conf', 0)):.2f}σ</p>
+            </div>""", unsafe_allow_html=True)
+            
+            c1, c2, c3, c4, c5 = st.columns(5)
+            ann_ret = float((df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1)
+            strat_std = df['Strategy_Ret'].std()
+            sharpe = float((df['Strategy_Ret'].mean() / strat_std) * np.sqrt(252)) if strat_std != 0 else 0.0
+            
+            # Finding the worst daily return and its date
+            max_daily_dd = df['Strategy_Ret'].min()
+            max_daily_dd_date = df['Strategy_Ret'].idxmin().strftime('%Y-%m-%d')
 
-        c1.metric("Annual Return", f"{ann_ret:.2%}")
-        c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-        c3.metric("Max DD (P/T)", f"{float(df['Drawdown'].min()):.2%}")
-        
-        # RECTIFIED: Restored Max DD (Daily) with date
-        c4.metric("Max DD (Daily)", f"{max_daily_dd:.2%}")
-        st.markdown(f"<div class='metric-sub'>Worst Day: <b>{max_daily_dd_date}</b></div>", unsafe_allow_html=True)
-        
-        with c5:
-            hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
-            st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
+            c1.metric("Annual Return", f"{ann_ret:.2%}")
+            c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
+            c3.metric("Max DD (P/T)", f"{float(df['Drawdown'].min()):.2%}")
+            
+            # RECTIFIED: Restored Max DD (Daily) with date as requested
+            c4.metric("Max DD (Daily)", f"{max_daily_dd:.2%}")
+            st.markdown(f"<div class='metric-sub'>Worst Day: <b>{max_daily_dd_date}</b></div>", unsafe_allow_html=True)
+            
+            with c5:
+                hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
+                st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
+
             st.subheader("15-Day Audit Trail")
-
             audit_df = out["audit"].tail(15).copy()
-
             audit_df.index = audit_df.index.strftime('%Y-%m-%d')
-
             style_subset = [c for c in ['Return', 'Z-Score'] if c in audit_df.columns]
-
             styled_df = audit_df.style.map(lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038', subset=style_subset).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}, na_rep="-")
-
             st.dataframe(styled_df, use_container_width=True)
 
-
-
             methodologies = {"Option A": "MODWT multi-resolution analysis combined with Polynomial SVR.", "Option B": "Hybrid RL-Supervised model using PPO.", "Option C": "Advantage Actor-Critic (A2C) optimizing allocation.", "Option D": "SVR-A2C Ensemble weighting.", "Option E": "Bayesian state-space filtering.", "Option F": "Hidden Markov Model (HMM) classification.", "Option G": "HMM-Biased SVR.", "Option H": "Bayesian-Denoised SVR.", "Option I": "CNN-LSTM Deep Learning.", "Option J": "Attention-Augmented CNN-LSTM.", "Option K": "Parallel Dual-Stream Deep Fusion."}
-
             method_key = opt.split("-")[0].strip() if "-" in opt else opt.split(":")[0].strip()
-
             st.divider()
-
             st.markdown(f"### Methodology: {opt}")
-
             st.write(methodologies.get(method_key, "Wavelet-based multi-resolution analysis."))
-
             st.info(f"⚠️ **Risk Policy:** Trailing Stop Loss at {sl_input*100:.1f}%. Recovery requires Z-Score > {rec_sigma}.")
 
-     else:
+        else: # Aligned with if out and "df" in out
             st.error("Model Engine Error: Backtest returned no data.")
-    except Exception as e:
-            st.error("CRITICAL UI RENDER ERROR")
-            st.exception(e)
-    else:
-            st.info("Please wait... Loading market data.")
+
+    except Exception as e: # Aligned with the new try: block
+        st.error("CRITICAL UI RENDER ERROR")
+        st.exception(e)
+
+else: # Aligned with if raw_df is not None:
+    st.info("Please wait... Loading market data.")
