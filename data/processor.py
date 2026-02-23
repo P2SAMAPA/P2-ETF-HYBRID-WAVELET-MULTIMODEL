@@ -30,27 +30,41 @@ def build_feature_matrix(raw_df: pd.DataFrame, target_col: str = "GLD", denoise:
 
     ret_df = pd.DataFrame(index=raw_df.index)
     for col in etf_cols:
-        if col in raw_df.columns: ret_df[f"{col}_Ret"] = raw_df[col].pct_change()
+        if col in raw_df.columns: 
+            ret_df[f"{col}_Ret"] = raw_df[col].pct_change()
+            
     for col in macro_cols:
-        if col in raw_df.columns: ret_df[f"{col}_lvl"] = raw_df[col]
+        if col in raw_df.columns: 
+            ret_df[f"{col}_lvl"] = raw_df[col]
 
     target_ret_col = f"{target_col}_Ret"
+    
+    # RECTIFICATION: Denoising features to prevent leakage into the target
     if denoise:
         for col in ret_df.columns:
-            if "_Ret" in col: ret_df[col] = apply_dwt_denoise(ret_df[col])
+            if "_Ret" in col: 
+                ret_df[col] = apply_dwt_denoise(ret_df[col])
 
     feat = pd.DataFrame(index=ret_df.index)
-    # 5 Strict Lags for SVR
+    
+    # 5 Strict Lags for SVR (A-H) and Deep Learning (I-K)
     for lag in [1, 3, 5, 10, 21]:
         feat[f"target_lag{lag}"] = ret_df[target_ret_col].shift(lag)
     
-    # Macro Features (Fixed to match model expectations)
+    # Macro Features - Ensuring 1-day lag to prevent look-ahead bias
     for col in macro_cols:
         if f"{col}_lvl" in ret_df.columns:
             feat[f"{col}_lag1"] = ret_df[f"{col}_lvl"].shift(1)
 
-    feat["__target__"] = ret_df[target_ret_col]
-    feat = feat.ffill().fillna(0).iloc[22:]
+    # RECTIFICATION: Pulling raw target from raw_df for honest backtesting
+    feat["__target__"] = raw_df[target_col].pct_change()
+    
+    # Truncate to ensure 20-day lookback is always valid for models I, J, K
+    feat = feat.dropna().iloc[22:] 
 
     feature_names = [c for c in feat.columns if c != "__target__"]
+    
+    # Final cleanup
+    feat = feat.ffill().fillna(0)
+    
     return feat[feature_names].values, feat["__target__"].values, feat.index, feature_names
