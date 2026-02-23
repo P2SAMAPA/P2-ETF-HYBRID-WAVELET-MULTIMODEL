@@ -191,7 +191,7 @@ if raw_df is not None:
         with c5:
             hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
             st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
-               st.subheader("15-Day Audit Trail")
+            st.subheader("15-Day Audit Trail")
 
             audit_df = out["audit"].tail(15).copy()
 
