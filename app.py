@@ -246,19 +246,19 @@ if raw_df is not None:
             )
 
           # Ensure this block is indented 4 spaces (one level) from the left margin 
-    # if it is inside the main() or backtest function.
-    methodologies = {
-        "Option A": "MODWT Multi-Resolution Analysis + RBF-SVR: Decomposes price into frequency bands via Wavelets, then uses a High-Penalty Radial Basis Function SVR to capture non-linear trend pivots.",
-        "Option B": "Hybrid SVR-PPO: Uses SVR-denoised signals as state inputs for Proximal Policy Optimization, employing a 'clipping' mechanism to ensure stable policy updates during high volatility.",
-        "Option C": "A2C Allocation Optimizer: An Advantage Actor-Critic Reinforcement Learning framework that treats portfolio weightings as actions, rewarding the 'Actor' for Sharpe Ratio maximization.",
-        "Option D": "SVR-A2C Ensemble: A multi-agent approach where SVR provides a deterministic baseline and A2C provides a stochastic 'advantage' adjustment to refine the final asset selection.",
-        "Option E": "Bayesian State-Space Filtering: Uses recursive Bayesian updates and a Signal-to-Noise Ratio (SNR) threshold to isolate structural regime shifts from random market noise.",
-        "Option F": "HMM Regime Classification: A 3-state Hidden Markov Model (Bull/Bear/Sideways) that maps hidden market states to macro-economic 'Pillars' like VIX and Credit Spreads.",
-        "Option G": "HMM-Biased RBF-SVR: Uses HMM-derived market states to dynamically bias SVR predictions, forcing more aggressive positioning during detected Bull regimes.",
-        "Option H": "Bayesian-Denoised RBF-SVR: Passes aggressive RBF-SVR outputs through a secondary Bayesian confidence filter to scale position sizes based on statistical conviction.",
-        "Option I": "CNN-LSTM Deep Learning: A cloud-trained (2008-2026) hybrid architecture using Convolutions for spatial pattern detection and LSTMs for long-term temporal dependencies.",
-        "Option J": "Attention-Augmented CNN-LSTM: Integrates a 'Soft-Attention' layer that allows the model to selectively weigh historical crash events more heavily than recent noise during prediction.",
-        "Option K": "Parallel Dual-Stream Deep Fusion: The most advanced engine; it fuses a dedicated Price-Stream and a Macro-Stream (VIX/DXY) into a final decision dense layer."
+            # if it is inside the main() or backtest function.
+            methodologies = {
+                "Option A": "MODWT Multi-Resolution Analysis + RBF-SVR: Decomposes price into frequency bands via Wavelets, then uses a High-Penalty Radial Basis Function SVR to capture non-linear trend pivots.",
+                "Option B": "Hybrid SVR-PPO: Uses SVR-denoised signals as state inputs for Proximal Policy Optimization, employing a 'clipping' mechanism to ensure stable policy updates during high volatility.",
+                "Option C": "A2C Allocation Optimizer: An Advantage Actor-Critic Reinforcement Learning framework that treats portfolio weightings as actions, rewarding the 'Actor' for Sharpe Ratio maximization.",
+                "Option D": "SVR-A2C Ensemble: A multi-agent approach where SVR provides a deterministic baseline and A2C provides a stochastic 'advantage' adjustment to refine the final asset selection.",
+                "Option E": "Bayesian State-Space Filtering: Uses recursive Bayesian updates and a Signal-to-Noise Ratio (SNR) threshold to isolate structural regime shifts from random market noise.",
+                "Option F": "HMM Regime Classification: A 3-state Hidden Markov Model (Bull/Bear/Sideways) that maps hidden market states to macro-economic 'Pillars' like VIX and Credit Spreads.",
+                "Option G": "HMM-Biased RBF-SVR: Uses HMM-derived market states to dynamically bias SVR predictions, forcing more aggressive positioning during detected Bull regimes.",
+                "Option H": "Bayesian-Denoised RBF-SVR: Passes aggressive RBF-SVR outputs through a secondary Bayesian confidence filter to scale position sizes based on statistical conviction.",
+                "Option I": "CNN-LSTM Deep Learning: A cloud-trained (2008-2026) hybrid architecture using Convolutions for spatial pattern detection and LSTMs for long-term temporal dependencies.",
+                "Option J": "Attention-Augmented CNN-LSTM: Integrates a 'Soft-Attention' layer that allows the model to selectively weigh historical crash events more heavily than recent noise during prediction.",
+                "Option K": "Parallel Dual-Stream Deep Fusion: The most advanced engine; it fuses a dedicated Price-Stream and a Macro-Stream (VIX/DXY) into a final decision dense layer."
     }
             
             method_key = opt.split("-")[0].strip() if "-" in opt else opt.split(":")[0].strip()
