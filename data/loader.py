@@ -21,8 +21,8 @@ STOOQ_ETF_MAP = {t: f"{t}.US" for t in ETF_TICKERS}
 MACRO_CONFIG = {
     "VIX":        ("VIXCLS",       "^VIX"),
     "DXY":        ("DTWEXBGS",      "DXY"),
-    "T10Y2Y":     ("T10Y2Y",        None),
-    "TBILL_3M":   ("DTB3",         "^IRX"), 
+    "T10Y2Y":      ("T10Y2Y",        None),
+    "TBILL_3M":    ("DTB3",         "^IRX"), 
     "IG_SPREAD": ("BAMLC0A0CM",    None),
     "HY_SPREAD": ("BAMLH0A0HYM2",  None),
 }
@@ -103,34 +103,49 @@ class FeatureLoader:
             return df
         except Exception: return pd.DataFrame()
 
-    def sync_data(self) -> str:
+    def sync_data(self, force: bool = False) -> str:
         today = pd.Timestamp.now().normalize()
         master_df = self.load_master()
         
         if not master_df.empty:
             last_date = master_df.index.max()
-            if last_date >= (today - pd.Timedelta(days=1)) and today.dayofweek < 5:
+            # RECTIFICATION: Only skip if not forced and literally updated today
+            if not force and last_date >= today:
                 return "Sync Status: Already Up to Date"
-            start_fetch = last_date - pd.Timedelta(days=5)
+            start_fetch = last_date - pd.Timedelta(days=7) # Larger buffer for weekends/holidays
         else:
             start_fetch = DATA_START
 
         try:
+            # Fetch incremental ETF data
             etf_df = _fetch_etf_stooq(ETF_TICKERS, start_fetch)
             if etf_df.empty: etf_df = _fetch_etf_yfinance(ETF_TICKERS, start_fetch)
             if etf_df.empty: return "Sync Failed: ETF Source unavailable"
 
+            # Fetch incremental Macro data
             macro_df = _fetch_all_macros(self.fred, start_fetch)
             combined = pd.concat([etf_df, macro_df], axis=1).ffill(limit=5)
             combined = combined[combined.index.dayofweek < 5]
 
-            final_df = combined if master_df.empty else pd.concat([master_df, combined])
-            final_df = final_df[~final_df.index.duplicated(keep="last")].sort_index()
+            # Merge with History (Incremental append)
+            if master_df.empty:
+                final_df = combined
+            else:
+                final_df = pd.concat([master_df, combined])
+                # Ensure we keep the newest data for overlapping dates
+                final_df = final_df[~final_df.index.duplicated(keep="last")].sort_index()
             
+            # Upload back to Hugging Face
             buf = io.BytesIO()
             final_df.to_parquet(buf)
             buf.seek(0)
-            HfApi().upload_file(path_or_fileobj=buf, path_in_repo=HF_FILENAME, repo_id=self.repo_id, repo_type=HF_REPO_TYPE, token=self.hf_token)
+            HfApi().upload_file(
+                path_or_fileobj=buf, 
+                path_in_repo=HF_FILENAME, 
+                repo_id=self.repo_id, 
+                repo_type=HF_REPO_TYPE, 
+                token=self.hf_token
+            )
             return f"Success: Synced thru {final_df.index.max().strftime('%Y-%m-%d')}"
         except Exception as e: return f"Sync Failed: {str(e)}"
 
@@ -144,12 +159,17 @@ def load_raw_data(force_sync: bool = False):
 
     loader = FeatureLoader(fred_key=f_key, hf_token=h_token)
     msg = "Loaded from Cache"
-    if force_sync and h_token: msg = loader.sync_data()
+    
+    # RECTIFICATION: pass force_sync to the loader
+    if force_sync and h_token: 
+        msg = loader.sync_data(force=True)
     
     df = loader.load_master()
-    if df.empty: df = _fetch_etf_yfinance(ETF_TICKERS, DATA_START)
+    if df.empty: 
+        df = _fetch_etf_yfinance(ETF_TICKERS, DATA_START)
 
     for t in ETF_TICKERS:
-        if t in df.columns: df[f"{t}_Ret"] = df[t].pct_change()
+        if t in df.columns: 
+            df[f"{t}_Ret"] = df[t].pct_change()
     
     return df.dropna(subset=["SPY_Ret"]), msg
