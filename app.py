@@ -165,7 +165,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         "target": str(hist[-1]), "conf": float(confs[-1]), "date": common_idx[-1].strftime('%Y-%m-%d')
     }
 
-# --- SIDEBAR & GLOBAL LOAD ---
+# --- SIDEBAR (UN-NESTED FROM FUNCTION) ---
 with st.sidebar:
     st.header("Terminal Config")
     if st.button("🔄 Refresh Data & Clear Cache"):
@@ -191,6 +191,7 @@ with st.sidebar:
     rec_sigma = st.slider("Recovery Threshold (Sigma)", 1.0, 2.0, 1.1, 0.1)
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
+# --- GLOBAL DATA ASSIGNMENT ---
 raw_df = st.session_state.get('raw_df')
 DEBUG_MODE = True 
 
@@ -234,14 +235,7 @@ try:
                 hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
                 st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
 
-            st.subheader("OOS Cumulative Return")
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df.index, y=df["Equity"], name="P2 Strategy", line=dict(color='#1a73e8', width=3)))
-            for bench, color in [("SPY", "#718096"), ("AGG", "#e53e3e")]:
-                if bench in df.columns:
-                    fig.add_trace(go.Scatter(x=df.index, y=df[bench], name=f"{bench} Bench", line=dict(color=color, dash='dot')))
-            fig.update_layout(template="plotly_white", height=500, margin=dict(l=0, r=0, t=10, b=0))
-            st.plotly_chart(fig, use_container_width=True)
+            # NOTE: OOS Cumulative Return Chart removed per user request.
 
             st.subheader("15-Day Audit Trail")
             audit_df = out["audit"].tail(15).copy()
@@ -250,20 +244,7 @@ try:
             styled_df = audit_df.style.map(lambda v: 'color: #d93025' if isinstance(v, (int, float)) and v < 0 else 'color: #188038', subset=style_subset).format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'}, na_rep="-")
             st.dataframe(styled_df, use_container_width=True)
 
-            # --- METHODOLOGY RENDER (OUTSIDE AUDIT BLOCK) ---
-            methodologies = {
-                "Option A": "MODWT multi-resolution analysis combined with Polynomial SVR.",
-                "Option B": "Hybrid RL-Supervised model using PPO.",
-                "Option C": "Advantage Actor-Critic (A2C) optimizing allocation.",
-                "Option D": "SVR-A2C Ensemble weighting.",
-                "Option E": "Bayesian state-space filtering.",
-                "Option F": "Hidden Markov Model (HMM) classification.",
-                "Option G": "HMM-Biased SVR.",
-                "Option H": "Bayesian-Denoised SVR.",
-                "Option I": "CNN-LSTM Deep Learning.",
-                "Option J": "Attention-Augmented CNN-LSTM.",
-                "Option K": "Parallel Dual-Stream Deep Fusion."
-            }
+            methodologies = {"Option A": "MODWT multi-resolution analysis combined with Polynomial SVR.", "Option B": "Hybrid RL-Supervised model using PPO.", "Option C": "Advantage Actor-Critic (A2C) optimizing allocation.", "Option D": "SVR-A2C Ensemble weighting.", "Option E": "Bayesian state-space filtering.", "Option F": "Hidden Markov Model (HMM) classification.", "Option G": "HMM-Biased SVR.", "Option H": "Bayesian-Denoised SVR.", "Option I": "CNN-LSTM Deep Learning.", "Option J": "Attention-Augmented CNN-LSTM.", "Option K": "Parallel Dual-Stream Deep Fusion."}
             method_key = opt.split("-")[0].strip() if "-" in opt else opt.split(":")[0].strip()
             st.divider()
             st.markdown(f"### Methodology: {opt}")
