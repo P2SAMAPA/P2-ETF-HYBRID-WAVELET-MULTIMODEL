@@ -216,7 +216,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     }
     # --- SIDEBAR ---
     with st.sidebar:
-    st.header("Terminal Config")
+        st.header("Terminal Config")
     
     # 1. Combined Refresh Logic
     if st.button("🔄 Refresh Data & Clear Cache"):
