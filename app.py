@@ -23,10 +23,29 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def get_next_trading_day_simple():
-    now = datetime.now()
-    days_ahead = (7 - now.weekday()) if now.weekday() >= 4 else 1
-    next_day = now + timedelta(days=days_ahead)
-    return next_day.strftime('%d %B %Y')
+    import pytz
+    # 1. Lock timezone to New York (Wall Street)
+    ny_tz = pytz.timezone('America/New_York')
+    now_ny = datetime.now(ny_tz)
+    
+    # 2. Define Market Open (9:30 AM EST)
+    market_open = now_ny.replace(hour=9, minute=30, second=0, microsecond=0)
+    
+    # 3. Logic: If before 9:30 AM, the 'Next Trading Day' is TODAY.
+    # If after 9:30 AM, the 'Next Trading Day' is TOMORROW.
+    if now_ny < market_open:
+        target_date = now_ny
+    else:
+        # If it's Friday afternoon (weekday 4), skip to Monday (+3 days)
+        if now_ny.weekday() == 4:
+            target_date = now_ny + timedelta(days=3)
+        # If it's Saturday (5), skip to Monday (+2 days)
+        elif now_ny.weekday() == 5:
+            target_date = now_ny + timedelta(days=2)
+        else:
+            target_date = now_ny + timedelta(days=1)
+            
+    return target_date.strftime('%d %B %Y')
 
 def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, _log=None):
     def logger(msg):
