@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pywt
+from sklearn.preprocessing import StandardScaler
 
 def apply_dwt_denoise(series: pd.Series, wavelet: str = "sym4", level: int = 3) -> pd.Series:
     clean = series.dropna()
@@ -39,32 +40,27 @@ def build_feature_matrix(raw_df: pd.DataFrame, target_col: str = "GLD", denoise:
 
     target_ret_col = f"{target_col}_Ret"
     
-    # RECTIFICATION: Denoising features to prevent leakage into the target
     if denoise:
         for col in ret_df.columns:
             if "_Ret" in col: 
                 ret_df[col] = apply_dwt_denoise(ret_df[col])
 
     feat = pd.DataFrame(index=ret_df.index)
-    
-    # 5 Strict Lags for SVR (A-H) and Deep Learning (I-K)
     for lag in [1, 3, 5, 10, 21]:
         feat[f"target_lag{lag}"] = ret_df[target_ret_col].shift(lag)
     
-    # Macro Features - Ensuring 1-day lag to prevent look-ahead bias
     for col in macro_cols:
         if f"{col}_lvl" in ret_df.columns:
             feat[f"{col}_lag1"] = ret_df[f"{col}_lvl"].shift(1)
 
-    # RECTIFICATION: Pulling raw target from raw_df for honest backtesting
     feat["__target__"] = raw_df[target_col].pct_change()
-    
-    # Truncate to ensure 20-day lookback is always valid for models I, J, K
     feat = feat.dropna().iloc[22:] 
 
     feature_names = [c for c in feat.columns if c != "__target__"]
+    X_raw = feat[feature_names].values
     
-    # Final cleanup
-    feat = feat.ffill().fillna(0)
+    # RECTIFICATION: Standardize features for Deep Learning stability
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_raw)
     
-    return feat[feature_names].values, feat["__target__"].values, feat.index, feature_names
+    return X_scaled, feat["__target__"].values, feat.index, feature_names
