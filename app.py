@@ -138,7 +138,10 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         hwm = max(hwm, equity)
         if (equity - hwm) / hwm <= -stop_loss_pct: in_timeout = True 
         if in_timeout and z_score >= recovery_sigma: in_timeout = False
-        final_sig = "CASH" if in_timeout or dp.max() <= 0 else dp.idxmax()
+        
+        # RECTIFICATION: Relaxed 'CASH' trigger to allow strongest relative asset even if value is low
+        final_sig = "CASH" if in_timeout or dp.max() < -0.05 else dp.idxmax()
+        
         if final_sig != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = final_sig
@@ -165,7 +168,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         "target": str(hist[-1]), "conf": float(confs[-1]), "date": common_idx[-1].strftime('%Y-%m-%d')
     }
 
-# --- SIDEBAR (UN-NESTED FROM FUNCTION) ---
+# --- SIDEBAR (UN-NESTED) ---
 with st.sidebar:
     st.header("Terminal Config")
     if st.button("🔄 Refresh Data & Clear Cache"):
@@ -191,7 +194,6 @@ with st.sidebar:
     rec_sigma = st.slider("Recovery Threshold (Sigma)", 1.0, 2.0, 1.1, 0.1)
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
-# --- GLOBAL DATA ASSIGNMENT ---
 raw_df = st.session_state.get('raw_df')
 DEBUG_MODE = True 
 
@@ -235,7 +237,7 @@ try:
                 hit_ratio_15d = float((df["Strategy_Ret"].tail(15) > 0).mean())
                 st.metric("Hit Ratio (15D)", f"{hit_ratio_15d:.1%}")
 
-            # NOTE: OOS Cumulative Return Chart removed per user request.
+            # CHART REMOVED PER REQUEST
 
             st.subheader("15-Day Audit Trail")
             audit_df = out["audit"].tail(15).copy()
