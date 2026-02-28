@@ -44,14 +44,17 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Protect new models, pull remote config changes, then restore models
-          git add -f models/*.h5 models/*.pkl
+          # RECTIFIED: Use directory-based add to prevent pathspec errors
+          if [ -d "models" ]; then
+            git add -f models/
+          fi
+          
           git stash
           git pull --rebase origin main
           git stash pop || echo "No stashed changes to apply"
           
           # Final add and push
-          git add -f models/*.h5 models/*.pkl
+          git add -f models/ || echo "No models to add"
           git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-update trained models [skip ci]" && git push)
 
       - name: Sync Everything to Hugging Face
