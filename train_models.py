@@ -2,30 +2,19 @@ import os
 import numpy as np
 import pandas as pd
 import shutil
-# import tensorflow as tf # Uncomment if you use TF directly here
 
 # --- FORCE CPU USAGE (Critical for GitHub Actions Free Tier) ---
 try:
     import tensorflow as tf
+    # Disable GPU to prevent memory allocation errors on limited environments
     tf.config.set_visible_devices([], 'GPU')
     print("✅ TensorFlow configured to CPU only.")
 except ImportError:
-    print("ℹ️ TensorFlow not found (using other backend).")
-
-try:
-    import torch
-    if torch.cuda.is_available():
-        print("⚠️ Warning: CUDA detected but should not be available on GitHub Actions.")
-    # Force CPU if torch is used
-    device = torch.device("cpu")
-    print("✅ PyTorch configured to CPU.")
-except ImportError:
-    pass
-# ---------------------------------------------------------------
+    print("ℹ️ TensorFlow not found.")
 
 from data.loader import load_raw_data
 from data.processor import build_feature_matrix
-from engine import DeepHybridEngine, MomentumEngine, A2CEngine
+from engine import DeepHybridEngine
 
 def train_and_save_all():
     # 1. Clear old models and ensure directory exists fresh
@@ -33,68 +22,103 @@ def train_and_save_all():
         shutil.rmtree("models")
     os.makedirs("models", exist_ok=True)
     
-    # 2. Setup environment for the loader
-    print("Preparing data environment...")
-
-    # 3. Load Data
+    # 2. Setup environment and Load Data
     print("Downloading data from Hugging Face...")
-    # Removed duplicate call
     df, _ = load_raw_data(force_sync=False)
     
     if df is None or df.empty:
-        print("❌ Error: Loaded DataFrame is empty. Check HF_TOKEN and FRED_API_KEY.")
+        print("❌ Error: Loaded DataFrame is empty. Check dataset connection.")
         return
 
-    # 4. Build features using your processor.py
-    print(f"Processing features for {len(df)} rows...")
-    X, y, _, _ = build_feature_matrix(df)
-
-    # DL models require 3D input (Samples, Lookback, Features)
+    # 3. MULTI-ETF CONCATENATION LOGIC
+    # These are the 7 ETFs your model must understand to avoid 'TBT' errors in app.py
+    target_assets = ["TLT", "LQD", "HYG", "VCIT", "VNQ", "GLD", "SLV"]
+    
+    all_X_3d = []
+    all_y_3d = []
+    all_X_macro = [] # For Option K
+    
     lookback = 20
-    
-    # --- MEMORY OPTIMIZATION ---
-    # Pre-allocate array instead of list comprehension to save RAM
-    n_samples = len(X) - lookback + 1
-    n_features = X.shape[1] if len(X.shape) > 1 else 1
-    X_3d = np.zeros((n_samples, lookback, n_features))
-    y_3d = np.zeros(n_samples)
-    
-    for i in range(lookback, len(X) + 1):
-        X_3d[i - lookback] = X[i - lookback:i]
-        y_3d[i - lookback] = y[i - 1]
-    # ---------------------------
+    print(f"🔄 Processing features for {len(target_assets)} ETFs...")
 
-    # --- Train Option I ---
-    print("Training Option I (CNN)...")
+    for ticker in target_assets:
+        try:
+            # Build features for specific ticker
+            X, y, idx, _ = build_feature_matrix(df, target_col=ticker)
+            
+            # Create 3D Windows (Tensors) for Deep Learning
+            n_samples = len(X) - lookback + 1
+            n_features = X.shape
+            
+            X_ticker_3d = np.zeros((n_samples, lookback, n_features))
+            y_ticker_3d = np.zeros(n_samples)
+            
+            for i in range(lookback, len(X) + 1):
+                X_ticker_3d[i - lookback] = X[i - lookback:i]
+                y_ticker_3d[i - lookback] = y[i - 1]
+            
+            all_X_3d.append(X_ticker_3d)
+            all_y_3d.append(y_ticker_3d)
+            
+            # Extract Macro features for the same indices (Option K support)
+            # We use VIX, DXY, T10Y2Y, IG_SPREAD, HY_SPREAD as global context
+            macro_cols = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
+            if all(c in df.columns for c in macro_cols):
+                m_df = df[macro_cols].iloc[lookback-1:].copy()
+                # Match shape by adding dummy columns used by the engine
+                m_df["Mom"], m_df["Vol"], m_df["SPY"] = 0.0, 0.0, 0.0
+                all_X_macro.append(m_df.values)
+                
+            print(f"  ✅ {ticker}: Prepared {n_samples} samples.")
+        except Exception as e:
+            print(f"  ❌ Skipping {ticker} due to error: {e}")
+
+    if not all_X_3d:
+        print("❌ Error: No training data generated.")
+        return
+
+    # Concatenate all assets into one global training set
+    X_train_final = np.concatenate(all_X_3d, axis=0)
+    y_train_final = np.concatenate(all_y_3d, axis=0)
+    X_macro_final = np.concatenate(all_X_macro, axis=0) if all_X_macro else None
+
+    # 4. SHUFFLE DATA
+    # Shuffling is critical so the model doesn't learn assets in a specific order
+    indices = np.arange(len(X_train_final))
+    np.random.shuffle(indices)
+    
+    X_train_final = X_train_final[indices]
+    y_train_final = y_train_final[indices]
+    if X_macro_final is not None:
+        X_macro_final = X_macro_final[indices]
+
+    print(f"📊 Global Dataset Ready: {X_train_final.shape} total samples.")
+
+    # 5. TRAIN AND SAVE MODELS
+    # --- Option I ---
+    print("\n🚀 Training Option I (CNN)...")
     model_i = DeepHybridEngine(mode="Option I")
-    if model_i.train(X_3d, y_3d):
+    # Training on global set; logic for I/J ignores macro_in
+    if model_i.train(X_train_final, y_train_final):
         model_i.save("models/opt_i_cnn.h5")
+        print("  💾 Saved: models/opt_i_cnn.h5")
 
-    # --- Train Option J ---
-    print("Training Option J (CNN-LSTM)...")
+    # --- Option J ---
+    print("\n🚀 Training Option J (Attention-CNN-LSTM)...")
     model_j = DeepHybridEngine(mode="Option J")
-    if model_j.train(X_3d, y_3d):
+    if model_j.train(X_train_final, y_train_final):
         model_j.save("models/opt_j_cnn_lstm.h5")
+        print("  💾 Saved: models/opt_j_cnn_lstm.h5")
 
-    # --- Train Option K ---
-    print("Training Option K (Hybrid)...")
+    # --- Option K ---
+    print("\n🚀 Training Option K (Parallel Dual-Stream)...")
     model_k = DeepHybridEngine(mode="Option K")
-    if model_k.train(X_3d, y_3d):
+    # Option K requires both Price windows and Macro features
+    if model_k.train(X_train_final, y_train_final, X_macro=X_macro_final):
         model_k.save("models/opt_k_hybrid.h5")
-    
-    # --- Train Option C ---
-    print("Training Option C (A2C)...")
-    model_c = A2CEngine()
-    if model_c.train(X, y):
-        model_c.save("models/a2c_weights.pkl")
-    
-    # --- Train Option A ---
-    print("Updating Option A (SVR)...")
-    model_a = MomentumEngine()
-    if model_a.train(X, y):
-        model_a.save("models/svr_momentum_poly.pkl")
+        print("  💾 Saved: models/opt_k_hybrid.h5")
 
-    print("✅ All models trained and saved to /models")
+    print("\n✅ All Cloud Models (I, J, K) have been updated for the 7-ETF Universe.")
 
 if __name__ == "__main__":
     train_and_save_all()
