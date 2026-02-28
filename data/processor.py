@@ -26,7 +26,10 @@ def apply_dwt_denoise(series: pd.Series, wavelet: str = "sym4", level: int = 3) 
     return result
 
 def build_feature_matrix(raw_df: pd.DataFrame, target_col: str = "GLD", denoise: bool = True) -> tuple:
-    etf_cols   = ["GLD", "SPY", "AGG", "TLT", "TBT", "VNQ", "SLV"]
+    # ── UPDATED ETF LIST ─────────────────────────────────────────────────────
+    # Removed: TBT
+    # Added: VCIT, LQD, HYG (Fixed Income ETFs)
+    etf_cols   = ["GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV"]
     macro_cols = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
 
     ret_df = pd.DataFrame(index=raw_df.index)
