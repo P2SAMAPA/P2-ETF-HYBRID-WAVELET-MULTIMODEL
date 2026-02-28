@@ -4,7 +4,6 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from data.loader import load_raw_data
-# RECTIFIED: Explicit imports to ensure stability
 from engine import MomentumEngine, A2CEngine, PPOEngine, DeepHybridEngine, run_bayesian_filter
 from analytics.regime import RegimeHMM, BayesianFilter 
 
@@ -47,7 +46,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     if isinstance(raw_df, tuple): raw_df = raw_df
     if raw_df is None or raw_df.empty: return None
 
-    # RECTIFIED: Asset list synchronized with loader.py (TBT removed, LQD/HYG/VCIT added)
+    # Sync with current processor.py (TBT removed, LQD/HYG/VCIT added)
     predict_assets = ["TLT", "LQD", "HYG", "VCIT", "VNQ", "GLD", "SLV"]
     comparison_assets = ["SPY", "AGG"]
     all_assets = predict_assets + comparison_assets
@@ -72,7 +71,11 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
                 mode_key = "Option I" if "Option I" in model_choice else ("Option J" if "Option J" in model_choice else "Option K")
                 eng = DeepHybridEngine(mode=mode_key)
                 fname = {"Option I": "opt_i_cnn.h5", "Option J": "opt_j_cnn_lstm.h5", "Option K": "opt_k_hybrid.h5"}[mode_key]
-                eng.load(f"models/{fname}")
+                
+                path = f"models/{fname}"
+                import os
+                if os.path.exists(path):
+                    eng.load(path)
                 
                 X_3d_list = []
                 for i in oos_indices:
@@ -175,15 +178,11 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         "date": common_idx[-1].strftime('%Y-%m-%d')
     }
 
-# --- SIDEBAR & UI RENDER ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("Terminal Config")
-    st.info("💡 Options I, J, K are cloud-trained (2008-2026). Options A-H retrain locally.")
-    
-    if st.button("🔄 Refresh Data & Clear Cache"):
+    if st.button("🔄 Clear Cache & Refresh"):
         st.cache_data.clear()
-        st.session_state['raw_df'], sync_msg = load_raw_data(force_sync=True)
-        st.toast(sync_msg)
         st.rerun()
 
     if 'raw_df' not in st.session_state:
@@ -224,23 +223,19 @@ if raw_df is not None:
             
             c1.metric("Annual Return", f"{ann_ret:.2%}")
             c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-            c3.metric("Max DD (P/T)", f"{df['Drawdown'].min():.2%}")
+            c3.metric("Max DD", f"{df['Drawdown'].min():.2%}")
             c4.metric("Hit Ratio (15D)", f"{(df['Strategy_Ret'].tail(15) > 0).mean():.1%}")
 
-            st.subheader("15-Day Audit Trail")
-            audit_display = out["audit"].tail(15).copy()
-            audit_display.index = audit_display.index.strftime('%Y-%m-%d')
-            
-            def style_returns(val):
-                color = '#d93025' if val < 0 else '#188038'
-                return f'color: {color}; font-weight: bold'
+            st.subheader("Performance Chart")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df.index, y=df['Equity'], name='Strategy', line=dict(color='#1a73e8', width=2)))
+            for comp in ["SPY", "AGG"]:
+                if comp in df.columns:
+                    fig.add_trace(go.Scatter(x=df.index, y=df[comp], name=comp, line=dict(dash='dot', width=1.5)))
+            fig.update_layout(hovermode='x unified', template='plotly_white', margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig, use_container_width=True)
 
-            st.dataframe(
-                audit_display.style.format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'})
-                .applymap(style_returns, subset=['Return']), 
-                use_container_width=True
-            )
-
+            # --- METHODOLOGY SECTION (RESTORED) ---
             methodologies = {
                 "Option A": "MODWT Multi-Resolution Analysis + RBF-SVR.",
                 "Option B": "Hybrid SVR-PPO Reinforcement Learning.",
