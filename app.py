@@ -51,10 +51,11 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     def logger(msg):
         if _log: _log.write(msg)
 
-    if isinstance(raw_df, tuple): raw_df = raw_df[0]
+    if isinstance(raw_df, tuple): raw_df = raw_df
     if raw_df is None or raw_df.empty: return None
 
-    predict_assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
+    # RECTIFIED: Removed TBT and added LQD, HYG, VCIT
+    predict_assets = ["TLT", "LQD", "HYG", "VCIT", "VNQ", "GLD", "SLV"]
     comparison_assets = ["SPY", "AGG"]
     all_assets = predict_assets + comparison_assets
     
@@ -72,7 +73,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         try:
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
             m_oos = idx.year >= start_yr
-            oos_indices = np.where(m_oos)[0]
+            oos_indices = np.where(m_oos)
 
             # --- CLOUD MODELS (I, J, K) ---
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
@@ -86,7 +87,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
                     start_idx = max(0, i - 19)
                     window = X[start_idx : i + 1]
                     if len(window) < 20:
-                        window = np.vstack([np.tile(X[0], (20 - len(window), 1)), window])
+                        window = np.vstack([np.tile(X, (20 - len(window), 1)), window])
                     X_3d_list.append(window)
                 
                 X_3d = np.array(X_3d_list)
@@ -180,7 +181,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     
     for comp in comparison_assets:
         if comp in raw_df.columns:
-            res[comp] = (raw_df.loc[common_idx, comp] / raw_df.loc[common_idx, comp].iloc[0]) * 100
+            res[comp] = (raw_df.loc[common_idx, comp] / raw_df.loc[common_idx, comp].iloc) * 100
 
     audit_df = pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx)
     
@@ -280,8 +281,8 @@ if raw_df is not None:
                 "Option K": "Parallel Dual-Stream Deep Fusion: The most advanced engine; it fuses a dedicated Price-Stream and a Macro-Stream (VIX/DXY) into a final decision dense layer."
     }
             
-            method_key = opt.split("-")[0].strip() if "-" in opt else opt.split(":")[0].strip()
-            if ":" in method_key: method_key = method_key.split(":")[0].strip()
+            method_key = opt.split("-").strip() if "-" in opt else opt.split(":").strip()
+            if ":" in method_key: method_key = method_key.split(":").strip()
             
             st.divider()
             st.markdown(f"### Methodology: {opt}")
