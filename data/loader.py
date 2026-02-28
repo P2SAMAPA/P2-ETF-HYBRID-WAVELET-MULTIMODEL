@@ -15,7 +15,10 @@ HF_REPO_TYPE = "dataset"
 HF_FILENAME  = "master_data.parquet"
 DATA_START   = pd.Timestamp("2008-01-01")
 
-ETF_TICKERS   = ["GLD", "SPY", "AGG", "TLT", "TBT", "VNQ", "SLV"]
+# ── UPDATED ETF LIST ─────────────────────────────────────────────────────────
+# Removed: TBT
+# Added: VCIT, LQD, HYG (Fixed Income ETFs)
+ETF_TICKERS   = ["GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV"]
 STOOQ_ETF_MAP = {t: f"{t}.US" for t in ETF_TICKERS}
 
 MACRO_CONFIG = {
