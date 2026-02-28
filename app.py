@@ -4,7 +4,6 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from data.loader import load_raw_data
-# RECTIFIED: Added PPOEngine to imports
 from engine import MomentumEngine, A2CEngine, PPOEngine, DeepHybridEngine, run_bayesian_filter
 from analytics.regime import RegimeHMM, BayesianFilter 
 
@@ -47,7 +46,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     if isinstance(raw_df, tuple): raw_df = raw_df
     if raw_df is None or raw_df.empty: return None
 
-    # RECTIFIED: Assets updated to match your new universe
+    # Sync with loader.py and processor.py universe
     predict_assets = ["TLT", "LQD", "HYG", "VCIT", "VNQ", "GLD", "SLV"]
     comparison_assets = ["SPY", "AGG"]
     all_assets = predict_assets + comparison_assets
@@ -85,6 +84,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
                 X_3d = np.array(X_3d_list)
                 X_macro = None
                 if "Option K" in model_choice:
+                    # Global Macro Pillars for Stream 2
                     m_df = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].copy()
                     m_df["Mom"], m_df["Vol"], m_df["SPY"] = 0.0, 0.0, 0.0 
                     X_macro = m_df.values
@@ -162,7 +162,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     
     for comp in comparison_assets:
         if comp in raw_df.columns:
-            # RECTIFIED: Added .iloc to properly baseline at 100
+            # FIXED: Added to .iloc to properly access value and avoid TypeError
             res[comp] = (raw_df.loc[common_idx, comp] / raw_df.loc[common_idx, comp].iloc) * 100
 
     audit_df = pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx)
