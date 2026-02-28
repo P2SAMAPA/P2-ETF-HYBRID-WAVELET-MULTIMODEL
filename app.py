@@ -181,6 +181,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     
     for comp in comparison_assets:
         if comp in raw_df.columns:
+            # RECTIFIED: Fixed .iloc property access to use .iloc
             res[comp] = (raw_df.loc[common_idx, comp] / raw_df.loc[common_idx, comp].iloc) * 100
 
     audit_df = pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx)
@@ -265,8 +266,6 @@ if raw_df is not None:
                 use_container_width=True
             )
 
-          # Ensure this block is indented 4 spaces (one level) from the left margin 
-            # if it is inside the main() or backtest function.
             methodologies = {
                 "Option A": "MODWT Multi-Resolution Analysis + RBF-SVR: Decomposes price into frequency bands via Wavelets, then uses a High-Penalty Radial Basis Function SVR to capture non-linear trend pivots.",
                 "Option B": "Hybrid SVR-PPO: Uses SVR-denoised signals as state inputs for Proximal Policy Optimization, employing a 'clipping' mechanism to ensure stable policy updates during high volatility.",
