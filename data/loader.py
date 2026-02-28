@@ -15,38 +15,41 @@ HF_REPO_TYPE = "dataset"
 HF_FILENAME  = "master_data.parquet"
 DATA_START   = pd.Timestamp("2008-01-01")
 
-# ── UPDATED ETF LIST ─────────────────────────────────────────────────────────
-# Removed: TBT
-# Added: VCIT, LQD, HYG (Fixed Income ETFs)
+# ── ETF LIST (TBT removed, VCIT/LQD/HYG added) ───────────────────────────────
 ETF_TICKERS   = ["GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV"]
 STOOQ_ETF_MAP = {t: f"{t}.US" for t in ETF_TICKERS}
 
 MACRO_CONFIG = {
     "VIX":        ("VIXCLS",       "^VIX"),
     "DXY":        ("DTWEXBGS",      "DXY"),
-    "T10Y2Y":      ("T10Y2Y",        None),
-    "TBILL_3M":    ("DTB3",         "^IRX"), 
-    "IG_SPREAD": ("BAMLC0A0CM",    None),
-    "HY_SPREAD": ("BAMLH0A0HYM2",  None),
+    "T10Y2Y":     ("T10Y2Y",        None),
+    "TBILL_3M":   ("DTB3",         "^IRX"),
+    "IG_SPREAD":  ("BAMLC0A0CM",    None),
+    "HY_SPREAD":  ("BAMLH0A0HYM2",  None),
 }
 
 # ---------------------------------------------------------------------------
 # FETCHERS
 # ---------------------------------------------------------------------------
 def _fetch_etf_stooq(tickers: list, start: pd.Timestamp) -> pd.DataFrame:
-    try:
-        frames = []
-        for ticker in tickers:
-            stooq_ticker = STOOQ_ETF_MAP[ticker]
+    frames = []
+    for ticker in tickers:
+        stooq_ticker = STOOQ_ETF_MAP.get(ticker)
+        if not stooq_ticker:
+            continue
+        try:
             url = f"https://stooq.com/q/d/l/?s={stooq_ticker.lower()}&i=d"
-            df  = pd.read_csv(url, parse_dates=["Date"], index_col="Date")
+            df = pd.read_csv(url, parse_dates=["Date"], index_col="Date")
             df.index = pd.DatetimeIndex(df.index)
-            if "Close" not in df.columns: continue
+            if "Close" not in df.columns:
+                continue
             s = df["Close"].rename(ticker)
             frames.append(s[s.index >= start])
-        if not frames: return pd.DataFrame()
-        return pd.concat(frames, axis=1).sort_index().dropna(how="all")
-    except Exception: return pd.DataFrame()
+        except Exception:
+            continue
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, axis=1).sort_index()
 
 def _fetch_etf_yfinance(tickers: list, start: pd.Timestamp) -> pd.DataFrame:
     try:
@@ -55,11 +58,13 @@ def _fetch_etf_yfinance(tickers: list, start: pd.Timestamp) -> pd.DataFrame:
         for t in tickers:
             if t in raw.columns.levels[0]:
                 frames.append(raw[t]['Close'].rename(t))
-        if not frames: return pd.DataFrame()
+        if not frames:
+            return pd.DataFrame()
         df = pd.concat(frames, axis=1)
         df.index = pd.DatetimeIndex(df.index)
         return df.sort_index()
-    except Exception: return pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
 
 def _fetch_macro_fred(fred: Fred, series_id: str, name: str, start: pd.Timestamp) -> pd.Series:
     try:
@@ -67,16 +72,18 @@ def _fetch_macro_fred(fred: Fred, series_id: str, name: str, start: pd.Timestamp
         s = pd.Series(s, name=name)
         s.index = pd.DatetimeIndex(s.index)
         return s
-    except Exception: return pd.Series(dtype=float, name=name)
+    except Exception:
+        return pd.Series(dtype=float, name=name)
 
 def _fetch_macro_stooq(ticker: str, name: str, start: pd.Timestamp) -> pd.Series:
     try:
         url = f"https://stooq.com/q/d/l/?s={ticker.lower()}&i=d"
-        df  = pd.read_csv(url, parse_dates=["Date"], index_col="Date")
+        df = pd.read_csv(url, parse_dates=["Date"], index_col="Date")
         df.index = pd.DatetimeIndex(df.index)
         s = df["Close"].rename(name)
         return s[s.index >= start]
-    except Exception: return pd.Series(dtype=float, name=name)
+    except Exception:
+        return pd.Series(dtype=float, name=name)
 
 def _fetch_all_macros(fred: Fred, start: pd.Timestamp) -> pd.DataFrame:
     series_list = []
@@ -100,57 +107,66 @@ class FeatureLoader:
 
     def load_master(self) -> pd.DataFrame:
         try:
-            path = hf_hub_download(repo_id=self.repo_id, filename=HF_FILENAME, repo_type=HF_REPO_TYPE, token=self.hf_token)
+            path = hf_hub_download(repo_id=self.repo_id, filename=HF_FILENAME,
+                                   repo_type=HF_REPO_TYPE, token=self.hf_token)
             df = pd.read_parquet(path)
             df.index = pd.DatetimeIndex(df.index)
             return df
-        except Exception: return pd.DataFrame()
+        except Exception:
+            return pd.DataFrame()
 
     def sync_data(self, force: bool = False) -> str:
         today = pd.Timestamp.now().normalize()
         master_df = self.load_master()
-        
-        if not master_df.empty:
+
+        # Force full rebuild if: forced, empty, or new ETFs missing in history
+        expected_cols = set(ETF_TICKERS) | set(MACRO_CONFIG.keys())
+        has_all_cols = master_df.empty or all(c in master_df.columns for c in expected_cols)
+
+        if not force and not master_df.empty and has_all_cols:
             last_date = master_df.index.max()
-            # RECTIFICATION: Only skip if not forced and literally updated today
-            if not force and last_date >= today:
+            if last_date >= today:
                 return "Sync Status: Already Up to Date"
-            start_fetch = last_date - pd.Timedelta(days=7) # Larger buffer for weekends/holidays
+            start_fetch = last_date - pd.Timedelta(days=10)  # buffer
         else:
+            # Full rebuild triggered
             start_fetch = DATA_START
+            force = True  # ensure we overwrite with full history
 
         try:
-            # Fetch incremental ETF data
+            # Fetch ETF data (full if forced)
             etf_df = _fetch_etf_stooq(ETF_TICKERS, start_fetch)
-            if etf_df.empty: etf_df = _fetch_etf_yfinance(ETF_TICKERS, start_fetch)
-            if etf_df.empty: return "Sync Failed: ETF Source unavailable"
+            if etf_df.empty or force:
+                etf_df = _fetch_etf_yfinance(ETF_TICKERS, start_fetch)
+            if etf_df.empty:
+                return "Sync Failed: ETF Source unavailable"
 
-            # Fetch incremental Macro data
+            # Fetch macro data
             macro_df = _fetch_all_macros(self.fred, start_fetch)
             combined = pd.concat([etf_df, macro_df], axis=1).ffill(limit=5)
-            combined = combined[combined.index.dayofweek < 5]
+            combined = combined[combined.index.dayofweek < 5]  # weekdays only
 
-            # Merge with History (Incremental append)
-            if master_df.empty:
+            # Merge / overwrite logic
+            if master_df.empty or force:
                 final_df = combined
             else:
                 final_df = pd.concat([master_df, combined])
-                # Ensure we keep the newest data for overlapping dates
-                final_df = final_df[~final_df.index.duplicated(keep="last")].sort_index()
-            
-            # Upload back to Hugging Face
+                final_df = final_df.loc[~final_df.index.duplicated(keep='last')].sort_index()
+
+            # Upload to HF
             buf = io.BytesIO()
             final_df.to_parquet(buf)
             buf.seek(0)
             HfApi().upload_file(
-                path_or_fileobj=buf, 
-                path_in_repo=HF_FILENAME, 
-                repo_id=self.repo_id, 
-                repo_type=HF_REPO_TYPE, 
+                path_or_fileobj=buf,
+                path_in_repo=HF_FILENAME,
+                repo_id=self.repo_id,
+                repo_type=HF_REPO_TYPE,
                 token=self.hf_token
             )
             return f"Success: Synced thru {final_df.index.max().strftime('%Y-%m-%d')}"
-        except Exception as e: return f"Sync Failed: {str(e)}"
+        except Exception as e:
+            return f"Sync Failed: {str(e)}"
 
 @st.cache_data(show_spinner=False)
 def load_raw_data(force_sync: bool = False):
@@ -158,21 +174,22 @@ def load_raw_data(force_sync: bool = False):
         f_key = st.secrets["FRED_API_KEY"]
         h_token = st.secrets["HF_TOKEN"]
     except Exception:
-        f_key = "PASTE_YOUR_KEY_HERE"; h_token = None
+        f_key = "PASTE_YOUR_KEY_HERE"
+        h_token = None
 
     loader = FeatureLoader(fred_key=f_key, hf_token=h_token)
     msg = "Loaded from Cache"
-    
-    # RECTIFICATION: pass force_sync to the loader
-    if force_sync and h_token: 
+
+    if force_sync and h_token:
         msg = loader.sync_data(force=True)
-    
+
     df = loader.load_master()
-    if df.empty: 
+    if df.empty:
         df = _fetch_etf_yfinance(ETF_TICKERS, DATA_START)
 
+    # Ensure return columns exist
     for t in ETF_TICKERS:
-        if t in df.columns: 
+        if t in df.columns:
             df[f"{t}_Ret"] = df[t].pct_change()
-    
+
     return df.dropna(subset=["SPY_Ret"]), msg
