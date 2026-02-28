@@ -39,11 +39,8 @@ class DeepHybridEngine:
     def train(self, X, y):
         if self.is_trained: return True
         n_price = X.shape[2]
-        # Updated for current processor.py: exactly 5 macro features (VIX, DXY, T10Y2Y, IG_SPREAD, HY_SPREAD)
-        # The macro branch remains dummy (zeros) as per original design — no architecture change
-        n_macro = 5
-        X_macro = np.zeros((X.shape[0], n_macro)) 
-        self.model = self._build_parallel_model(n_price, n_macro)
+        X_macro = np.zeros((X.shape[0], 8)) 
+        self.model = self._build_parallel_model(n_price, 8)
         self.model.compile(optimizer='adam', loss='mse')
         self.model.fit([X, X_macro], y, epochs=1, batch_size=32, verbose=0)
         self.is_trained = True
@@ -55,8 +52,7 @@ class DeepHybridEngine:
             return pd.Series(0.0, index=idx)
         
         if X_macro is None:
-            # Match current 5-macro setup
-            X_macro = np.zeros((X.shape[0], 5))
+            X_macro = np.zeros((X.shape[0], 8))
             
         raw_preds = self.model.predict([X, X_macro], verbose=0).flatten()
         return pd.Series(raw_preds, index=idx)
