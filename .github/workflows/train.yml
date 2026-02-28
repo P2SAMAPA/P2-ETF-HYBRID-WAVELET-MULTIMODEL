@@ -1,5 +1,4 @@
 name: Cloud Model Trainer
-
 on:
   schedule:
     - cron: '0 23 * * *'
@@ -7,21 +6,19 @@ on:
     branches:
       - main
     paths:
-      - '**' 
-  workflow_dispatch: 
+      - '**'
+  workflow_dispatch:
 
 jobs:
   build-and-train:
     runs-on: ubuntu-latest
-    # --- RECTIFIED: GRANT WRITE ACCESS TO REPO ---
     permissions:
       contents: write
-    # ----------------------------------------------
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -32,7 +29,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip uninstall -y numpy
-          pip install "numpy<2.0"
+          pip install "numpy <2.0"
           pip install -r requirements_train.txt
           python -c "import numpy; print(f'VERIFIED NUMPY VERSION: {numpy.__version__}')"
 
@@ -47,7 +44,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # RECTIFIED: Protect new models, pull remote config changes, then restore models
+          # Protect new models, pull remote config changes, then restore models
           git add -f models/*.h5 models/*.pkl
           git stash
           git pull --rebase origin main
