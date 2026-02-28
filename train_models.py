@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 import shutil
+# import tensorflow as tf # Uncomment if you use TF directly here
 
 # --- FORCE CPU USAGE (Critical for GitHub Actions Free Tier) ---
 try:
@@ -15,6 +16,7 @@ try:
     import torch
     if torch.cuda.is_available():
         print("⚠️ Warning: CUDA detected but should not be available on GitHub Actions.")
+    # Force CPU if torch is used
     device = torch.device("cpu")
     print("✅ PyTorch configured to CPU.")
 except ImportError:
@@ -36,6 +38,7 @@ def train_and_save_all():
 
     # 3. Load Data
     print("Downloading data from Hugging Face...")
+    # Removed duplicate call
     df, _ = load_raw_data(force_sync=False)
     
     if df is None or df.empty:
@@ -44,18 +47,15 @@ def train_and_save_all():
 
     # 4. Build features using your processor.py
     print(f"Processing features for {len(df)} rows...")
-    X, y, _, feature_names = build_feature_matrix(df)
-
-    # === CONFIRM NEW FEATURE COUNT (9 ETFs + macros - TBT replaced) ===
-    n_features = X.shape[1]
-    print(f"✅ Feature matrix built with {n_features} features (GLD, SPY, AGG, TLT, VCIT, LQD, HYG, VNQ, SLV + macros)")
-    print(f"   Feature names: {feature_names}")
+    X, y, _, _ = build_feature_matrix(df)
 
     # DL models require 3D input (Samples, Lookback, Features)
     lookback = 20
     
     # --- MEMORY OPTIMIZATION ---
+    # Pre-allocate array instead of list comprehension to save RAM
     n_samples = len(X) - lookback + 1
+    n_features = X.shape[1] if len(X.shape) > 1 else 1
     X_3d = np.zeros((n_samples, lookback, n_features))
     y_3d = np.zeros(n_samples)
     
@@ -97,4 +97,4 @@ def train_and_save_all():
     print("✅ All models trained and saved to /models")
 
 if __name__ == "__main__":
-    train_models_and_save_all()
+    train_and_save_all()
