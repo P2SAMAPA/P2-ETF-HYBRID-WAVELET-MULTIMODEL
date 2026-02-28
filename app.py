@@ -24,22 +24,15 @@ st.markdown("""
 
 def get_next_trading_day_simple():
     import pytz
-    # 1. Lock timezone to New York (Wall Street)
     ny_tz = pytz.timezone('America/New_York')
     now_ny = datetime.now(ny_tz)
-    
-    # 2. Define Market Open (9:30 AM EST)
     market_open = now_ny.replace(hour=9, minute=30, second=0, microsecond=0)
     
-    # 3. Logic: If before 9:30 AM, the 'Next Trading Day' is TODAY.
-    # If after 9:30 AM, the 'Next Trading Day' is TOMORROW.
     if now_ny < market_open:
         target_date = now_ny
     else:
-        # If it's Friday afternoon (weekday 4), skip to Monday (+3 days)
         if now_ny.weekday() == 4:
             target_date = now_ny + timedelta(days=3)
-        # If it's Saturday (5), skip to Monday (+2 days)
         elif now_ny.weekday() == 5:
             target_date = now_ny + timedelta(days=2)
         else:
@@ -54,7 +47,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     if isinstance(raw_df, tuple): raw_df = raw_df
     if raw_df is None or raw_df.empty: return None
 
-    # RECTIFIED: Removed TBT and added LQD, HYG, VCIT
+    # RECTIFIED: Assets updated to match your new universe
     predict_assets = ["TLT", "LQD", "HYG", "VCIT", "VNQ", "GLD", "SLV"]
     comparison_assets = ["SPY", "AGG"]
     all_assets = predict_assets + comparison_assets
@@ -75,7 +68,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
             m_oos = idx.year >= start_yr
             oos_indices = np.where(m_oos)
 
-            # --- CLOUD MODELS (I, J, K) ---
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 mode_key = "Option I" if "Option I" in model_choice else ("Option J" if "Option J" in model_choice else "Option K")
                 eng = DeepHybridEngine(mode=mode_key)
@@ -98,8 +90,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
                     X_macro = m_df.values
                 
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
-            
-            # --- LOCAL MODELS (A-H) ---
             else:
                 m_is = idx.year < start_yr
                 if "Option B" in model_choice:
@@ -130,40 +120,31 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     is_stopped_out = False
     rets, hist, confs = [], [], []
 
-    # --- PORTFOLIO LOOP WITH TRAILING STOP LOSS ---
     for i, d in enumerate(common_idx):
         dp = df_p.loc[d]
         std_val = dp.std()
         z_score = (dp.max() - dp.mean()) / std_val if std_val > 1e-6 else 0.0
         
-        # Determine raw signal
         best_ticker = dp.idxmax() if dp.max() > 0 else "CASH"
         final_sig = best_ticker
 
-        # Recovery Logic: If stopped out, must clear Sigma threshold to re-enter
         if is_stopped_out:
             if z_score > recovery_sigma:
-                is_stopped_out = False # Recovered
+                is_stopped_out = False
             else:
                 final_sig = "CASH"
 
-        # Check for Stop Loss trigger if currently in an asset
         if current_asset != "CASH":
-            # Track peak equity for the current holding
             if equity > peak_equity: peak_equity = equity
-            
-            # Trigger Trailing Stop Loss
             if equity < (peak_equity * (1 - stop_loss_pct)):
                 final_sig = "CASH"
                 is_stopped_out = True
         
-        # Execute Trade & Apply T-Costs
         if final_sig != current_asset:
             equity *= (1 - t_cost_pct)
             current_asset = final_sig
-            peak_equity = equity # Reset peak for new asset or cash position
+            peak_equity = equity
             
-        # Calculate daily return
         if current_asset == "CASH":
             day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252 if "TBILL_3M" in raw_df.columns else 0.0
         else:
@@ -181,7 +162,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     
     for comp in comparison_assets:
         if comp in raw_df.columns:
-            # RECTIFIED: Fixed .iloc property access to use .iloc
+            # RECTIFIED: Added .iloc to properly baseline at 100
             res[comp] = (raw_df.loc[common_idx, comp] / raw_df.loc[common_idx, comp].iloc) * 100
 
     audit_df = pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx)
@@ -216,7 +197,6 @@ with st.sidebar:
         "Option J: Wavelet-Attention-CNN-LSTM", "Option K- Wavelet- Parallel-Dual-Stream-CNN-LSTM"
     ])
     sl_input = st.slider("Trailing Stop Loss (%)", 8.0, 20.0, 10.0, 0.5) / 100
-    # RECTIFIED: Updated range to 0.75 - 2.0
     rec_sigma = st.slider("Recovery Threshold (Sigma)", 0.75, 2.0, 0.80, 0.05)
     costs = st.number_input("T-Costs (bps)", 0, 50, 10)
 
@@ -237,7 +217,7 @@ if raw_df is not None:
                 <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Z-Score: {float(out.get('conf', 0)):.2f}σ</p>
             </div>""", unsafe_allow_html=True)
             
-            c1, c2, c3, c4, c5 = st.columns(5)
+            c1, c2, c3, c4 = st.columns(4)
             ann_ret = (df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1
             strat_std = df['Strategy_Ret'].std()
             sharpe = (df['Strategy_Ret'].mean() / strat_std) * np.sqrt(252) if strat_std != 0 else 0
@@ -245,17 +225,12 @@ if raw_df is not None:
             c1.metric("Annual Return", f"{ann_ret:.2%}")
             c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
             c3.metric("Max DD (P/T)", f"{df['Drawdown'].min():.2%}")
-            c4.metric("Max DD (Daily)", f"{df['Strategy_Ret'].min():.2%}")
-            
-            with c5:
-                hit_ratio = (df["Strategy_Ret"].tail(15) > 0).mean()
-                st.metric("Hit Ratio (15D)", f"{hit_ratio:.1%}")
+            c4.metric("Hit Ratio (15D)", f"{(df['Strategy_Ret'].tail(15) > 0).mean():.1%}")
 
             st.subheader("15-Day Audit Trail")
             audit_display = out["audit"].tail(15).copy()
             audit_display.index = audit_display.index.strftime('%Y-%m-%d')
             
-            # RECTIFIED: Conditional formatting for Green/Red returns
             def style_returns(val):
                 color = '#d93025' if val < 0 else '#188038'
                 return f'color: {color}; font-weight: bold'
@@ -267,18 +242,18 @@ if raw_df is not None:
             )
 
             methodologies = {
-                "Option A": "MODWT Multi-Resolution Analysis + RBF-SVR: Decomposes price into frequency bands via Wavelets, then uses a High-Penalty Radial Basis Function SVR to capture non-linear trend pivots.",
-                "Option B": "Hybrid SVR-PPO: Uses SVR-denoised signals as state inputs for Proximal Policy Optimization, employing a 'clipping' mechanism to ensure stable policy updates during high volatility.",
-                "Option C": "A2C Allocation Optimizer: An Advantage Actor-Critic Reinforcement Learning framework that treats portfolio weightings as actions, rewarding the 'Actor' for Sharpe Ratio maximization.",
-                "Option D": "SVR-A2C Ensemble: A multi-agent approach where SVR provides a deterministic baseline and A2C provides a stochastic 'advantage' adjustment to refine the final asset selection.",
-                "Option E": "Bayesian State-Space Filtering: Uses recursive Bayesian updates and a Signal-to-Noise Ratio (SNR) threshold to isolate structural regime shifts from random market noise.",
-                "Option F": "HMM Regime Classification: A 3-state Hidden Markov Model (Bull/Bear/Sideways) that maps hidden market states to macro-economic 'Pillars' like VIX and Credit Spreads.",
-                "Option G": "HMM-Biased RBF-SVR: Uses HMM-derived market states to dynamically bias SVR predictions, forcing more aggressive positioning during detected Bull regimes.",
-                "Option H": "Bayesian-Denoised RBF-SVR: Passes aggressive RBF-SVR outputs through a secondary Bayesian confidence filter to scale position sizes based on statistical conviction.",
-                "Option I": "CNN-LSTM Deep Learning: A cloud-trained (2008-2026) hybrid architecture using Convolutions for spatial pattern detection and LSTMs for long-term temporal dependencies.",
-                "Option J": "Attention-Augmented CNN-LSTM: Integrates a 'Soft-Attention' layer that allows the model to selectively weigh historical crash events more heavily than recent noise during prediction.",
-                "Option K": "Parallel Dual-Stream Deep Fusion: The most advanced engine; it fuses a dedicated Price-Stream and a Macro-Stream (VIX/DXY) into a final decision dense layer."
-    }
+                "Option A": "MODWT Multi-Resolution Analysis + RBF-SVR.",
+                "Option B": "Hybrid SVR-PPO Reinforcement Learning.",
+                "Option C": "A2C Allocation Optimizer.",
+                "Option D": "SVR-A2C Ensemble.",
+                "Option E": "Bayesian State-Space Filtering.",
+                "Option F": "HMM Regime Classification.",
+                "Option G": "HMM-Biased RBF-SVR.",
+                "Option H": "Bayesian-Denoised RBF-SVR.",
+                "Option I": "CNN-LSTM Deep Learning (Cloud).",
+                "Option J": "Attention-Augmented CNN-LSTM (Cloud).",
+                "Option K": "Parallel Dual-Stream Deep Fusion (Cloud)."
+            }
             
             method_key = opt.split("-").strip() if "-" in opt else opt.split(":").strip()
             if ":" in method_key: method_key = method_key.split(":").strip()
