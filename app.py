@@ -54,7 +54,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     if isinstance(raw_df, tuple): raw_df = raw_df[0]
     if raw_df is None or raw_df.empty: return None
 
-    predict_assets = ["TLT", "TBT", "VNQ", "GLD", "SLV"]
+    predict_assets = ["TLT", "VCIT", "LQD", "HYG", "VNQ", "GLD", "SLV"]
     comparison_assets = ["SPY", "AGG"]
     all_assets = predict_assets + comparison_assets
     
