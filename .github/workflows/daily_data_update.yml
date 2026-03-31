@@ -3,29 +3,55 @@ name: Daily Data Update
 on:
   schedule:
     - cron: '0 15 * * 1-5'   # 3:00 PM EST weekdays
-  workflow_dispatch:          # manual trigger
+  workflow_dispatch:
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
           pip install pyyaml
+
       - name: Run daily update
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python daily_update.py
+
       - name: Commit and push if changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add data/
-          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update data $(date +'%Y-%m-%d')"
-          git push
+
+          # Stash any changes (e.g., data files)
+          git stash
+
+          # Fetch the latest remote main
+          git fetch origin main
+
+          # Rebase local main on top of remote main
+          git rebase origin/main || (git rebase --abort && echo "Rebase failed" && exit 1)
+
+          # Restore stashed changes
+          git stash pop || echo "No stashed changes to apply"
+
+          # Add any generated files (e.g., data)
+          git add data/ || echo "No data to add"
+
+          # Commit and push if there are changes
+          git diff --quiet && git diff --staged --quiet || {
+            git commit -m "Auto-update data $(date +'%Y-%m-%d')"
+            git push origin main
+          }
