@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from data.loader import load_raw_data, ETF_TICKERS
+from data.loader import load_raw_data
 from engine import MomentumEngine, A2CEngine, PPOEngine, DeepHybridEngine, run_bayesian_filter
-from data.processor import build_feature_matrix   # updated signature
+from data.processor import build_feature_matrix
 
 # --- CONFIG & THEME ---
 st.set_page_config(page_title="P2 ETF WAVELET SVR MULTI MODEL", layout="wide", initial_sidebar_state="expanded")
@@ -24,6 +24,15 @@ st.markdown("""
 FI_COMMODITIES = ["TLT", "VCIT", "LQD", "HYG", "VNQ", "GLD", "SLV"]
 EQUITIES = ["QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XME", "GDX", "IWM"]
 BENCHMARKS = ["SPY", "AGG"]
+
+# Map asset list to category name (used for loading models)
+def get_category_name(asset_list):
+    if set(asset_list) == set(FI_COMMODITIES):
+        return "fi_commodities"
+    elif set(asset_list) == set(EQUITIES):
+        return "equities"
+    else:
+        return "fi_commodities"  # fallback
 
 def get_next_trading_day_simple():
     import pytz
@@ -69,7 +78,11 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 mode_key = "Option I" if "Option I" in model_choice else ("Option J" if "Option J" in model_choice else "Option K")
                 eng = DeepHybridEngine(mode=mode_key)
-                fname = {"Option I": "opt_i_cnn.h5", "Option J": "opt_j_cnn_lstm.h5", "Option K": "opt_k_hybrid.h5"}[mode_key]
+                # Determine category prefix for loading the correct model
+                cat_prefix = get_category_name(feature_symbols)
+                fname = {"Option I": f"{cat_prefix}_opt_i_cnn.h5",
+                         "Option J": f"{cat_prefix}_opt_j_cnn_lstm.h5",
+                         "Option K": f"{cat_prefix}_opt_k_hybrid.h5"}[mode_key]
                 eng.load(f"models/{fname}")
 
                 X_3d_list = []
