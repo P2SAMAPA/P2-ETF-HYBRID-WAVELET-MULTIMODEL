@@ -2,9 +2,8 @@ name: Daily Data Update
 
 on:
   schedule:
-    # Run at 3:00 PM EST on weekdays (after market close)
-    - cron: '0 15 * * 1-5'
-  workflow_dispatch:  # allow manual trigger
+    - cron: '0 15 * * 1-5'   # 3:00 PM EST weekdays
+  workflow_dispatch:          # manual trigger
 
 jobs:
   update:
