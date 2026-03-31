@@ -36,11 +36,18 @@ class DeepHybridEngine:
         out = Dense(1, activation='tanh')(z)
         return Model(inputs=[price_in, macro_in], outputs=out)
 
-    def train(self, X, y):
-        if self.is_trained: return True
+    def train(self, X, y, X_macro=None):
+        if self.is_trained:
+            return True
         n_price = X.shape[2]
-        X_macro = np.zeros((X.shape[0], 8)) 
-        self.model = self._build_parallel_model(n_price, 8)
+        if X_macro is None:
+            X_macro = np.zeros((X.shape[0], 8))
+        else:
+            # Ensure X_macro has correct shape (n_samples, n_macro_feats)
+            if X_macro.ndim == 1:
+                X_macro = X_macro.reshape(-1, 1)
+        n_macro = X_macro.shape[1]
+        self.model = self._build_parallel_model(n_price, n_macro)
         self.model.compile(optimizer='adam', loss='mse')
         self.model.fit([X, X_macro], y, epochs=1, batch_size=32, verbose=0)
         self.is_trained = True
@@ -53,7 +60,9 @@ class DeepHybridEngine:
         
         if X_macro is None:
             X_macro = np.zeros((X.shape[0], 8))
-            
+        else:
+            if X_macro.ndim == 1:
+                X_macro = X_macro.reshape(-1, 1)
         raw_preds = self.model.predict([X, X_macro], verbose=0).flatten()
         return pd.Series(raw_preds, index=idx)
 
