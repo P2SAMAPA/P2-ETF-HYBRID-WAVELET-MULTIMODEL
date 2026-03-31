@@ -4,6 +4,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from data.loader import load_raw_data, ETF_TICKERS
 from engine import MomentumEngine, A2CEngine, PPOEngine, DeepHybridEngine, run_bayesian_filter
+from data.processor import build_feature_matrix   # updated signature
 
 # --- CONFIG & THEME ---
 st.set_page_config(page_title="P2 ETF WAVELET SVR MULTI MODEL", layout="wide", initial_sidebar_state="expanded")
@@ -40,7 +41,7 @@ def get_next_trading_day_simple():
             target_date = now_ny + timedelta(days=1)
     return target_date.strftime('%d %B %Y')
 
-def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, predict_assets, _log=None):
+def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, predict_assets, feature_symbols, _log=None):
     def logger(msg):
         if _log: _log.write(msg)
 
@@ -55,14 +56,13 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
             raw_df[f"{a}_Ret"] = raw_df[a].pct_change()
 
     t_cost_pct = float(t_costs_bps) / 10_000
-    from data.processor import build_feature_matrix
 
     all_preds = {}
     logger(f"🤖 Generating signals using {model_choice}...")
 
     for ticker in predict_assets:
         try:
-            X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker)
+            X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker, feature_symbols=feature_symbols)
             m_oos = idx.year >= start_yr
             oos_indices = np.where(m_oos)[0]
 
@@ -268,7 +268,7 @@ if raw_df is not None:
     with tab1:
         with st.status("🔍 Engine Heartbeat (FI/Commodities)", expanded=False) as status:
             out = run_professional_backtest(
-                raw_df, s_yr, opt, costs, sl_input, rec_sigma, FI_COMMODITIES, _log=status
+                raw_df, s_yr, opt, costs, sl_input, rec_sigma, FI_COMMODITIES, FI_COMMODITIES, _log=status
             )
         if out:
             display_backtest_results(out, sl_input, rec_sigma, opt, "FI / Commodities", FI_COMMODITIES)
@@ -278,7 +278,7 @@ if raw_df is not None:
     with tab2:
         with st.status("🔍 Engine Heartbeat (Equities)", expanded=False) as status:
             out = run_professional_backtest(
-                raw_df, s_yr, opt, costs, sl_input, rec_sigma, EQUITIES, _log=status
+                raw_df, s_yr, opt, costs, sl_input, rec_sigma, EQUITIES, EQUITIES, _log=status
             )
         if out:
             display_backtest_results(out, sl_input, rec_sigma, opt, "Equities", EQUITIES)
