@@ -6,6 +6,8 @@ on:
 jobs:
   seed:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,3 +22,29 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python seeding.py --yes
+
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Stash any changes (e.g., data files)
+          git stash
+          
+          # Fetch the latest remote main
+          git fetch origin main
+          
+          # Rebase local main on top of remote main
+          git rebase origin/main || (git rebase --abort && echo "Rebase failed" && exit 1)
+          
+          # Restore stashed changes
+          git stash pop || echo "No stashed changes to apply"
+          
+          # Add any generated files (e.g., data)
+          git add -f data/ || echo "No data to add"
+          
+          # Commit and push if there are changes
+          git diff --quiet && git diff --staged --quiet || {
+            git commit -m "🤖 Auto-update seeded data [skip ci]"
+            git push origin main
+          }
