@@ -7,10 +7,9 @@ Run this once to populate the HF dataset with full historical data.
 import os
 import sys
 import yaml
+import argparse
 
-# Add project root to path if needed
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 from data.loader import FeatureLoader
 
 def load_config():
@@ -18,6 +17,10 @@ def load_config():
         return yaml.safe_load(f)
 
 def main():
+    parser = argparse.ArgumentParser(description='Seed the dataset with full history.')
+    parser.add_argument('--yes', '-y', action='store_true', help='Skip confirmation prompt')
+    args = parser.parse_args()
+
     config = load_config()
     seeding = config['seeding']
     symbols = seeding['symbols']
@@ -35,10 +38,11 @@ def main():
 
     print(f"Seeding data for symbols: {symbols}")
     print("This will replace the existing dataset with full history.")
-    confirm = input("Type 'yes' to confirm: ")
-    if confirm.lower() != 'yes':
-        print("Aborted.")
-        return
+    if not args.yes:
+        confirm = input("Type 'yes' to confirm: ")
+        if confirm.lower() != 'yes':
+            print("Aborted.")
+            return
 
     result = loader.sync_data(force=True)
     print(result)
