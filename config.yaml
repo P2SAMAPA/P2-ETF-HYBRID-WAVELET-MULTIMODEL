@@ -1,6 +1,4 @@
 # config.yaml
-# Configuration for data seeding and daily updates
-
 seeding:
   symbols:
     - GLD
@@ -32,9 +30,35 @@ seeding:
   update_frequency: "daily"
 
 daily_update:
-  symbols: []                     # if empty, uses seeding.symbols
+  symbols: []
   update_range: "last_5_trading_days"
   sources:
     price: "yfinance"
     macro: "fred"
-  retrain_models: false           # set to true to retrain after updates
+  retrain_models: false
+
+categories:
+  fi_commodities:
+    - TLT
+    - VCIT
+    - LQD
+    - HYG
+    - VNQ
+    - GLD
+    - SLV
+  equities:
+    - QQQ
+    - XLK
+    - XLF
+    - XLE
+    - XLV
+    - XLI
+    - XLY
+    - XLP
+    - XLU
+    - XME
+    - GDX
+    - IWM
+  benchmarks:
+    - SPY
+    - AGG
