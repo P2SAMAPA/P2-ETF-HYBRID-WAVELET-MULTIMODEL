@@ -3,7 +3,10 @@ import pandas as pd
 import pywt
 from sklearn.preprocessing import StandardScaler
 
+MACRO_COLS = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
+
 def apply_dwt_denoise(series: pd.Series, wavelet: str = "sym4", level: int = 3) -> pd.Series:
+    # (unchanged)
     clean = series.dropna()
     if len(clean) < (2 ** level):
         return series
@@ -27,41 +30,49 @@ def apply_dwt_denoise(series: pd.Series, wavelet: str = "sym4", level: int = 3) 
     result[nan_mask] = np.nan
     return result
 
-def build_feature_matrix(raw_df: pd.DataFrame, target_col: str = "GLD", denoise: bool = True) -> tuple:
-    # ── ETF LIST (TBT removed, VCIT/LQD/HYG added) ───────────────────────────────
-    etf_cols   = ["GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV"]
-    macro_cols = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
+def build_feature_matrix(raw_df: pd.DataFrame, target_col: str, feature_symbols: list, denoise: bool = True) -> tuple:
+    """
+    Build feature matrix for a given target asset, using returns of the provided feature_symbols
+    (which should be the set of assets in the same category, possibly including the target itself).
+    """
+    if target_col not in raw_df.columns:
+        raise ValueError(f"Target column '{target_col}' not found in raw data")
 
-    # Safety check: warn if any expected column is completely missing
-    missing_etfs = [col for col in etf_cols if col not in raw_df.columns]
-    if missing_etfs:
-        print(f"Warning: Missing ETF columns in raw data: {missing_etfs}")
-
+    # Build return DataFrame for all feature symbols
     ret_df = pd.DataFrame(index=raw_df.index)
-    for col in etf_cols:
-        if col in raw_df.columns:
-            ret_df[f"{col}_Ret"] = raw_df[col].pct_change()
+    for sym in feature_symbols:
+        if sym in raw_df.columns:
+            ret_df[f"{sym}_Ret"] = raw_df[sym].pct_change()
         else:
-            ret_df[f"{col}_Ret"] = np.nan  # explicit NaN column
+            ret_df[f"{sym}_Ret"] = np.nan
 
-    for col in macro_cols:
+    # Add macro levels
+    for col in MACRO_COLS:
         if col in raw_df.columns:
             ret_df[f"{col}_lvl"] = raw_df[col]
-
-    target_ret_col = f"{target_col}_Ret"
 
     if denoise:
         for col in ret_df.columns:
             if "_Ret" in col:
                 ret_df[col] = apply_dwt_denoise(ret_df[col])
 
+    # Build lagged features
     feat = pd.DataFrame(index=ret_df.index)
+    # Lags of target returns
     for lag in [1, 3, 5, 10, 21]:
-        feat[f"target_lag{lag}"] = ret_df[target_ret_col].shift(lag)
+        feat[f"target_lag{lag}"] = ret_df[f"{target_col}_Ret"].shift(lag)
 
-    for col in macro_cols:
+    # Lagged macro levels
+    for col in MACRO_COLS:
         if f"{col}_lvl" in ret_df.columns:
             feat[f"{col}_lag1"] = ret_df[f"{col}_lvl"].shift(1)
+
+    # Add returns of all feature symbols (except target) as features
+    # Optionally, we can add all, but we'll add them all for now
+    for sym in feature_symbols:
+        if sym == target_col:
+            continue
+        feat[f"{sym}_ret"] = ret_df[f"{sym}_Ret"]
 
     feat["__target__"] = raw_df[target_col].pct_change()
     feat = feat.dropna().iloc[22:]
@@ -69,7 +80,6 @@ def build_feature_matrix(raw_df: pd.DataFrame, target_col: str = "GLD", denoise:
     feature_names = [c for c in feat.columns if c != "__target__"]
     X_raw = feat[feature_names].values
 
-    # Standardize features for model stability
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X_raw)
 
