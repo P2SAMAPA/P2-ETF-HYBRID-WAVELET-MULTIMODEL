@@ -50,11 +50,21 @@ def train_category(category_name, asset_list, raw_df, lookback=20):
             all_X_3d.append(X_ticker_3d)
             all_y_3d.append(y_ticker_3d)
 
-            # Macro features (for Option K)
+            # Macro features (for Option K) - ensure shape matches
             macro_cols = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
             if all(c in raw_df.columns for c in macro_cols):
                 m_df = raw_df[macro_cols].iloc[lookback-1:].copy()
-                m_df["Mom"], m_df["Vol"], m_df["SPY"] = 0.0, 0.0, 0.0
+                # Add dummy columns to reach 8 features (matching engine's expectation)
+                for dummy in ["Mom", "Vol", "SPY"]:
+                    m_df[dummy] = 0.0
+                # Ensure alignment with the number of samples (n_samples)
+                if len(m_df) >= n_samples:
+                    m_df = m_df.iloc[:n_samples]
+                else:
+                    # Pad if needed (shouldn't happen)
+                    pad = pd.DataFrame(np.zeros((n_samples - len(m_df), len(macro_cols)+3)),
+                                       columns=m_df.columns)
+                    m_df = pd.concat([m_df, pad], axis=0)
                 all_X_macro.append(m_df.values)
 
             print(f"  ✅ {ticker}: Prepared {n_samples} samples.")
@@ -99,6 +109,7 @@ def train_category(category_name, asset_list, raw_df, lookback=20):
     # Option K
     print(f"\n🚀 Training Option K (Parallel Dual-Stream) for {category_name}...")
     model_k = DeepHybridEngine(mode="Option K")
+    # Only pass macro data if it exists; otherwise train without
     if model_k.train(X_train, y_train, X_macro=X_macro):
         model_k.save(f"models/{category_name}_opt_k_hybrid.h5")
         print(f"  💾 Saved: models/{category_name}_opt_k_hybrid.h5")
