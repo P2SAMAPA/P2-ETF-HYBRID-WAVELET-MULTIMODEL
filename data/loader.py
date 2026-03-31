@@ -1,4 +1,6 @@
 import io
+import os
+import yaml
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -8,15 +10,29 @@ from huggingface_hub import HfApi, hf_hub_download
 from datetime import datetime
 
 # ---------------------------------------------------------------------------
-# CONSTANTS
+# CONFIG LOADER
 # ---------------------------------------------------------------------------
-HF_REPO_ID   = "P2SAMAPA/fi-etf-macro-signal-master-data"
-HF_REPO_TYPE = "dataset"
-HF_FILENAME  = "master_data.parquet"
-DATA_START   = pd.Timestamp("2008-01-01")
+def _load_seeding_config():
+    """Load seeding configuration from config/seeding.yml"""
+    try:
+        with open('config/seeding.yml', 'r') as f:
+            config = yaml.safe_load(f)
+            return config['seeding']
+    except Exception:
+        # Fallback to hardcoded defaults if file missing
+        return {
+            'symbols': ["GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV"],
+            'start_date': "2008-01-01",
+            'end_date': "2026-03-31",
+            'sources': {'price': 'yfinance', 'macro': 'fred'}
+        }
 
-# ── ETF LIST (TBT removed, VCIT/LQD/HYG added) ───────────────────────────────
-ETF_TICKERS   = ["GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV"]
+# Load once at module level
+SEEDING_CONFIG = _load_seeding_config()
+ETF_TICKERS = SEEDING_CONFIG['symbols']
+DATA_START = pd.Timestamp(SEEDING_CONFIG['start_date'])
+
+# Stooq mapping (unchanged, but we need to map all tickers)
 STOOQ_ETF_MAP = {t: f"{t}.US" for t in ETF_TICKERS}
 
 MACRO_CONFIG = {
@@ -29,7 +45,7 @@ MACRO_CONFIG = {
 }
 
 # ---------------------------------------------------------------------------
-# FETCHERS
+# FETCHERS (unchanged, but will use ETF_TICKERS from config)
 # ---------------------------------------------------------------------------
 def _fetch_etf_stooq(tickers: list, start: pd.Timestamp) -> pd.DataFrame:
     frames = []
@@ -97,18 +113,19 @@ def _fetch_all_macros(fred: Fred, start: pd.Timestamp) -> pd.DataFrame:
     return macro_df.ffill(limit=5)
 
 # ---------------------------------------------------------------------------
-# LOADER CLASS
+# LOADER CLASS (modified to accept symbols)
 # ---------------------------------------------------------------------------
 class FeatureLoader:
-    def __init__(self, fred_key: str, hf_token: str = None):
-        self.fred     = Fred(api_key=fred_key)
+    def __init__(self, fred_key: str, hf_token: str = None, symbols: list = None):
+        self.fred = Fred(api_key=fred_key)
         self.hf_token = hf_token
-        self.repo_id  = HF_REPO_ID
+        self.repo_id = "P2SAMAPA/fi-etf-macro-signal-master-data"  # keep as is
+        self.symbols = symbols if symbols is not None else ETF_TICKERS
 
     def load_master(self) -> pd.DataFrame:
         try:
-            path = hf_hub_download(repo_id=self.repo_id, filename=HF_FILENAME,
-                                   repo_type=HF_REPO_TYPE, token=self.hf_token)
+            path = hf_hub_download(repo_id=self.repo_id, filename="master_data.parquet",
+                                   repo_type="dataset", token=self.hf_token)
             df = pd.read_parquet(path)
             df.index = pd.DatetimeIndex(df.index)
             return df
@@ -119,8 +136,8 @@ class FeatureLoader:
         today = pd.Timestamp.now().normalize()
         master_df = self.load_master()
 
-        # Force full rebuild if: forced, empty, or new ETFs missing in history
-        expected_cols = set(ETF_TICKERS) | set(MACRO_CONFIG.keys())
+        # Expected columns: symbols + macro columns
+        expected_cols = set(self.symbols) | set(MACRO_CONFIG.keys())
         has_all_cols = master_df.empty or all(c in master_df.columns for c in expected_cols)
 
         if not force and not master_df.empty and has_all_cols:
@@ -131,13 +148,13 @@ class FeatureLoader:
         else:
             # Full rebuild triggered
             start_fetch = DATA_START
-            force = True  # ensure we overwrite with full history
+            force = True
 
         try:
-            # Fetch ETF data (full if forced)
-            etf_df = _fetch_etf_stooq(ETF_TICKERS, start_fetch)
+            # Fetch ETF data using self.symbols
+            etf_df = _fetch_etf_stooq(self.symbols, start_fetch)
             if etf_df.empty or force:
-                etf_df = _fetch_etf_yfinance(ETF_TICKERS, start_fetch)
+                etf_df = _fetch_etf_yfinance(self.symbols, start_fetch)
             if etf_df.empty:
                 return "Sync Failed: ETF Source unavailable"
 
@@ -146,7 +163,6 @@ class FeatureLoader:
             combined = pd.concat([etf_df, macro_df], axis=1).ffill(limit=5)
             combined = combined[combined.index.dayofweek < 5]  # weekdays only
 
-            # Merge / overwrite logic
             if master_df.empty or force:
                 final_df = combined
             else:
@@ -159,9 +175,9 @@ class FeatureLoader:
             buf.seek(0)
             HfApi().upload_file(
                 path_or_fileobj=buf,
-                path_in_repo=HF_FILENAME,
+                path_in_repo="master_data.parquet",
                 repo_id=self.repo_id,
-                repo_type=HF_REPO_TYPE,
+                repo_type="dataset",
                 token=self.hf_token
             )
             return f"Success: Synced thru {final_df.index.max().strftime('%Y-%m-%d')}"
@@ -177,7 +193,8 @@ def load_raw_data(force_sync: bool = False):
         f_key = "PASTE_YOUR_KEY_HERE"
         h_token = None
 
-    loader = FeatureLoader(fred_key=f_key, hf_token=h_token)
+    # Use the config-loaded symbols
+    loader = FeatureLoader(fred_key=f_key, hf_token=h_token, symbols=ETF_TICKERS)
     msg = "Loaded from Cache"
 
     if force_sync and h_token:
