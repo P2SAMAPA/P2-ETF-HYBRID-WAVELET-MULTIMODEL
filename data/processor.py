@@ -6,7 +6,6 @@ from sklearn.preprocessing import StandardScaler
 MACRO_COLS = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]
 
 def apply_dwt_denoise(series: pd.Series, wavelet: str = "sym4", level: int = 3) -> pd.Series:
-    # (unchanged)
     clean = series.dropna()
     if len(clean) < (2 ** level):
         return series
@@ -33,7 +32,7 @@ def apply_dwt_denoise(series: pd.Series, wavelet: str = "sym4", level: int = 3) 
 def build_feature_matrix(raw_df: pd.DataFrame, target_col: str, feature_symbols: list, denoise: bool = True) -> tuple:
     """
     Build feature matrix for a given target asset, using returns of the provided feature_symbols
-    (which should be the set of assets in the same category, possibly including the target itself).
+    (the set of assets in the same category, including possibly the target itself).
     """
     if target_col not in raw_df.columns:
         raise ValueError(f"Target column '{target_col}' not found in raw data")
@@ -67,8 +66,7 @@ def build_feature_matrix(raw_df: pd.DataFrame, target_col: str, feature_symbols:
         if f"{col}_lvl" in ret_df.columns:
             feat[f"{col}_lag1"] = ret_df[f"{col}_lvl"].shift(1)
 
-    # Add returns of all feature symbols (except target) as features
-    # Optionally, we can add all, but we'll add them all for now
+    # Add returns of all feature symbols except target as features
     for sym in feature_symbols:
         if sym == target_col:
             continue
