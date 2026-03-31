@@ -25,15 +25,6 @@ FI_COMMODITIES = ["TLT", "VCIT", "LQD", "HYG", "VNQ", "GLD", "SLV"]
 EQUITIES = ["QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XME", "GDX", "IWM"]
 BENCHMARKS = ["SPY", "AGG"]
 
-# Map asset list to category name (used for loading models)
-def get_category_name(asset_list):
-    if set(asset_list) == set(FI_COMMODITIES):
-        return "fi_commodities"
-    elif set(asset_list) == set(EQUITIES):
-        return "equities"
-    else:
-        return "fi_commodities"  # fallback
-
 def get_next_trading_day_simple():
     import pytz
     ny_tz = pytz.timezone('America/New_York')
@@ -69,20 +60,29 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     all_preds = {}
     logger(f"🤖 Generating signals using {model_choice}...")
 
+    # Determine category prefix for deep learning models
+    if set(feature_symbols) == set(FI_COMMODITIES):
+        cat_prefix = "fi_commodities"
+    elif set(feature_symbols) == set(EQUITIES):
+        cat_prefix = "equities"
+    else:
+        cat_prefix = "fi_commodities"   # fallback
+
     for ticker in predict_assets:
         try:
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker, feature_symbols=feature_symbols)
             m_oos = idx.year >= start_yr
             oos_indices = np.where(m_oos)[0]
 
+            # --- CLOUD MODELS (I, J, K) ---
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
                 mode_key = "Option I" if "Option I" in model_choice else ("Option J" if "Option J" in model_choice else "Option K")
                 eng = DeepHybridEngine(mode=mode_key)
-                # Determine category prefix for loading the correct model
-                cat_prefix = get_category_name(feature_symbols)
-                fname = {"Option I": f"{cat_prefix}_opt_i_cnn.h5",
-                         "Option J": f"{cat_prefix}_opt_j_cnn_lstm.h5",
-                         "Option K": f"{cat_prefix}_opt_k_hybrid.h5"}[mode_key]
+                fname = {
+                    "Option I": f"{cat_prefix}_opt_i_cnn.h5",
+                    "Option J": f"{cat_prefix}_opt_j_cnn_lstm.h5",
+                    "Option K": f"{cat_prefix}_opt_k_hybrid.h5"
+                }[mode_key]
                 eng.load(f"models/{fname}")
 
                 X_3d_list = []
@@ -102,6 +102,7 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
 
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
 
+            # --- LOCAL MODELS (A-H) ---
             else:
                 m_is = idx.year < start_yr
                 if "Option B" in model_choice:
@@ -121,6 +122,8 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
 
         except Exception as e:
             logger(f"❌ Error on {ticker}: {e}")
+            import traceback
+            logger(traceback.format_exc())
             continue
 
     df_p = pd.DataFrame(all_preds).fillna(0)
