@@ -1,7 +1,7 @@
 name: Seed Data
 
 on:
-  workflow_dispatch:   # manual trigger only
+  workflow_dispatch:
 
 jobs:
   seed:
@@ -19,4 +19,4 @@ jobs:
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: python seeding.py
+        run: python seeding.py --yes
