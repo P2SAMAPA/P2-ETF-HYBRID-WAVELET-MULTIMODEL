@@ -44,18 +44,28 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # RECTIFIED: Use directory-based add to prevent pathspec errors
+          # Stash any changes (e.g., models)
+          git stash
+          
+          # Fetch the latest remote main
+          git fetch origin main
+          
+          # Rebase local main on top of remote main
+          git rebase origin/main || (git rebase --abort && echo "Rebase failed" && exit 1)
+          
+          # Restore stashed changes
+          git stash pop || echo "No stashed changes to apply"
+          
+          # Add models if they exist
           if [ -d "models" ]; then
             git add -f models/
           fi
           
-          git stash
-          git pull --rebase origin main
-          git stash pop || echo "No stashed changes to apply"
-          
-          # Final add and push
-          git add -f models/ || echo "No models to add"
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 Auto-update trained models [skip ci]" && git push)
+          # Commit and push if there are changes
+          git diff --quiet && git diff --staged --quiet || {
+            git commit -m "🤖 Auto-update trained models [skip ci]"
+            git push origin main
+          }
 
       - name: Sync Everything to Hugging Face
         env:
