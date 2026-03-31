@@ -28,4 +28,3 @@ joblib
 
 # Deep Learning
 tensorflow-cpu==2.15.0
-git-python
