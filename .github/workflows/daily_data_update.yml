@@ -11,9 +11,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Clean workspace
+        run: |
+          rm -rf ${{ github.workspace }}/*
+          rm -rf ${{ github.workspace }}/.??* 2>/dev/null || true
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          clean: true
 
       - uses: actions/setup-python@v5
         with:
@@ -35,13 +41,10 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-          # Clean untracked files (including models/*.h5) to prevent conflicts
-          git clean -fd
-
-          # Pull latest changes with rebase
+          # Pull latest changes first
           git pull --rebase origin main
 
-          # Add generated files
+          # Add all generated files (data and models)
           git add data/ models/ || echo "No new files to add"
 
           # Commit and push if there are changes
