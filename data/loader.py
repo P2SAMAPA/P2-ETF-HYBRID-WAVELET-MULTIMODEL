@@ -13,15 +13,19 @@ from datetime import datetime
 # CONFIG LOADER
 # ---------------------------------------------------------------------------
 def _load_seeding_config():
-    """Load seeding configuration from config/seeding.yml"""
+    """Load seeding configuration from config.yaml"""
     try:
-        with open('config/seeding.yml', 'r') as f:
+        with open('config.yaml', 'r') as f:
             config = yaml.safe_load(f)
             return config['seeding']
     except Exception:
-        # Fallback to hardcoded defaults if file missing
+        # Fallback to hardcoded defaults if file missing - include ALL symbols
         return {
-            'symbols': ["GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV"],
+            'symbols': [
+                "GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV",
+                "QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU",
+                "XME", "GDX", "IWM"
+            ],
             'start_date': "2008-01-01",
             'end_date': "2026-03-31",
             'sources': {'price': 'yfinance', 'macro': 'fred'}
