@@ -41,12 +41,21 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-          # Pull latest changes first
-          git pull --rebase origin main
-
-          # Add all generated files (data and models)
+          # Add any new files first
           git add data/ models/ || echo "No new files to add"
-
+          
+          # Stash changes
+          git stash
+          
+          # Pull latest changes
+          git pull --rebase origin main
+          
+          # Restore stashed changes
+          git stash pop || true
+          
+          # Re-add files in case of conflicts
+          git add data/ models/ || echo "No files to add"
+          
           # Commit and push if there are changes
           git diff --quiet && git diff --staged --quiet || {
             git commit -m "🤖 Auto-update data & models $(date +'%Y-%m-%d')"
