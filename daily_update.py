@@ -20,7 +20,8 @@ def main():
     seeding = config['seeding']
     daily = config['daily_update']
 
-    symbols = daily['symbols'] if daily['symbols'] else seeding['symbols']
+    # Fix: Properly handle empty list vs None
+    symbols = daily.get('symbols') if daily.get('symbols') else seeding['symbols']
 
     fred_key = os.environ.get('FRED_API_KEY')
     if not fred_key:
@@ -29,9 +30,10 @@ def main():
 
     hf_token = os.environ.get('HF_TOKEN')
 
+    # Pass symbols explicitly to FeatureLoader
     loader = FeatureLoader(fred_key=fred_key, hf_token=hf_token, symbols=symbols)
 
-    print(f"Updating data for symbols: {symbols}")
+    print(f"Updating data for {len(symbols)} symbols: {symbols}")
     result = loader.sync_data(force=False)
     print(result)
 
