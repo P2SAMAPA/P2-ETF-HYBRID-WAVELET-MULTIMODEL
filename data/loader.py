@@ -6,7 +6,7 @@ import numpy as np
 import yfinance as yf
 import streamlit as st
 from fredapi import Fred
-from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import hf_hub_download
 from datetime import datetime
 
 # ---------------------------------------------------------------------------
@@ -173,18 +173,13 @@ class FeatureLoader:
                 final_df = pd.concat([master_df, combined])
                 final_df = final_df.loc[~final_df.index.duplicated(keep='last')].sort_index()
 
-            # Upload to HF
-            buf = io.BytesIO()
-            final_df.to_parquet(buf)
-            buf.seek(0)
-            HfApi().upload_file(
-                path_or_fileobj=buf,
-                path_in_repo="master_data.parquet",
-                repo_id=self.repo_id,
-                repo_type="dataset",
-                token=self.hf_token
-            )
-            return f"Success: Synced thru {final_df.index.max().strftime('%Y-%m-%d')}"
+            # REMOVED: Hugging Face upload - now saves locally only
+            # Save to local data directory instead
+            os.makedirs('data', exist_ok=True)
+            local_path = 'data/master_data.parquet'
+            final_df.to_parquet(local_path)
+            
+            return f"Success: Synced thru {final_df.index.max().strftime('%Y-%m-%d')} (saved locally)"
         except Exception as e:
             return f"Sync Failed: {str(e)}"
 
