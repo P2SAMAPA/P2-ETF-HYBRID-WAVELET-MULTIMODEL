@@ -20,8 +20,13 @@ def main():
     seeding = config['seeding']
     daily = config['daily_update']
 
-    # Fix: Properly handle empty list vs None
-    symbols = daily.get('symbols') if daily.get('symbols') else seeding['symbols']
+    # Fix: Explicitly use seeding symbols since daily symbols is empty
+    # This ensures we always use the full symbol list from config.yaml
+    symbols = seeding['symbols']
+    
+    # Debug output to verify symbols
+    print(f"Config loaded. Found {len(symbols)} symbols in seeding config.")
+    print(f"Daily update config symbols: {daily.get('symbols', 'Not set (using seeding)')}")
 
     fred_key = os.environ.get('FRED_API_KEY')
     if not fred_key:
