@@ -6,7 +6,7 @@ import numpy as np
 import yfinance as yf
 import streamlit as st
 from fredapi import Fred
-from huggingface_hub import hf_hub_download
+from huggingface_hub import HfApi, hf_hub_download
 from datetime import datetime
 
 # ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ class FeatureLoader:
     def __init__(self, fred_key: str, hf_token: str = None, symbols: list = None):
         self.fred = Fred(api_key=fred_key)
         self.hf_token = hf_token
-        self.repo_id = "P2SAMAPA/fi-etf-macro-signal-master-data"  # keep as is
+        self.repo_id = "P2SAMAPA/fi-etf-macro-signal-master-data"  # HF dataset
         self.symbols = symbols if symbols is not None else ETF_TICKERS
 
     def load_master(self) -> pd.DataFrame:
@@ -173,13 +173,23 @@ class FeatureLoader:
                 final_df = pd.concat([master_df, combined])
                 final_df = final_df.loc[~final_df.index.duplicated(keep='last')].sort_index()
 
-            # REMOVED: Hugging Face upload - now saves locally only
-            # Save to local data directory instead
-            os.makedirs('data', exist_ok=True)
-            local_path = 'data/master_data.parquet'
-            final_df.to_parquet(local_path)
+            # Upload to HF dataset
+            buf = io.BytesIO()
+            final_df.to_parquet(buf)
+            buf.seek(0)
+            HfApi().upload_file(
+                path_or_fileobj=buf,
+                path_in_repo="master_data.parquet",
+                repo_id=self.repo_id,
+                repo_type="dataset",
+                token=self.hf_token
+            )
             
-            return f"Success: Synced thru {final_df.index.max().strftime('%Y-%m-%d')} (saved locally)"
+            # Also save locally as backup
+            os.makedirs('data', exist_ok=True)
+            final_df.to_parquet('data/master_data.parquet')
+            
+            return f"Success: Synced thru {final_df.index.max().strftime('%Y-%m-%d')} (uploaded to HF dataset)"
         except Exception as e:
             return f"Sync Failed: {str(e)}"
 
