@@ -1,4 +1,5 @@
 name: Cloud Model Trainer
+
 on:
   schedule:
     - cron: '0 23 * * *'
@@ -15,10 +16,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Clean workspace
+        run: |
+          rm -rf ${{ github.workspace }}/*
+          rm -rf ${{ github.workspace }}/.??* 2>/dev/null || true
+
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          clean: true
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -44,17 +51,8 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Stash any changes (e.g., models)
-          git stash
-          
-          # Fetch the latest remote main
-          git fetch origin main
-          
-          # Rebase local main on top of remote main
-          git rebase origin/main || (git rebase --abort && echo "Rebase failed" && exit 1)
-          
-          # Restore stashed changes
-          git stash pop || echo "No stashed changes to apply"
+          # Clean pull to avoid conflicts
+          git pull --rebase origin main
           
           # Add models if they exist
           if [ -d "models" ]; then
@@ -66,23 +64,3 @@ jobs:
             git commit -m "🤖 Auto-update trained models [skip ci]"
             git push origin main
           }
-
-      - name: Sync Everything to Hugging Face
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          python -c "
-          from huggingface_hub import HfApi
-          import os
-          api = HfApi()
-          print('🚀 Starting total sync to Hugging Face...')
-          
-          api.upload_folder(
-              folder_path='.',
-              repo_id='P2SAMAPA/P2-ETF-HYBRID-WAVELET-PPO',
-              repo_type='space',
-              token=os.environ['HF_TOKEN'],
-              ignore_patterns=['.git*', '.github*']
-          )
-          print('✅ Sync Complete! Space is restarting.')
-          "
