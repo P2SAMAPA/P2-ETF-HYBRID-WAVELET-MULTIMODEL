@@ -35,23 +35,17 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-          # Stash any changes (e.g., data files)
-          git stash
+          # Clean untracked files (including models/*.h5) to prevent conflicts
+          git clean -fd
 
-          # Fetch the latest remote main
-          git fetch origin main
+          # Pull latest changes with rebase
+          git pull --rebase origin main
 
-          # Rebase local main on top of remote main
-          git rebase origin/main || (git rebase --abort && echo "Rebase failed" && exit 1)
-
-          # Restore stashed changes
-          git stash pop || echo "No stashed changes to apply"
-
-          # Add any generated files (e.g., data)
-          git add data/ || echo "No data to add"
+          # Add generated files
+          git add data/ models/ || echo "No new files to add"
 
           # Commit and push if there are changes
           git diff --quiet && git diff --staged --quiet || {
-            git commit -m "Auto-update data $(date +'%Y-%m-%d')"
+            git commit -m "🤖 Auto-update data & models $(date +'%Y-%m-%d')"
             git push origin main
           }
