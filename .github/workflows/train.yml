@@ -51,10 +51,21 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Clean pull to avoid conflicts
+          # Add models first (they are untracked)
+          if [ -d "models" ]; then
+            git add -f models/
+          fi
+          
+          # Stash any changes
+          git stash
+          
+          # Pull latest changes
           git pull --rebase origin main
           
-          # Add models if they exist
+          # Restore stashed models
+          git stash pop || true
+          
+          # Re-add models in case stash pop created conflicts
           if [ -d "models" ]; then
             git add -f models/
           fi
