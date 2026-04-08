@@ -31,7 +31,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip uninstall -y numpy
-          pip install "numpy<2.0"
+          pip install "numpy <2.0"
           pip install -r requirements.txt
           python -c "import numpy; print(f'VERIFIED NUMPY VERSION: {numpy.__version__}')"
       - name: Run Trainer
@@ -44,16 +44,27 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Pull latest remote changes FIRST before touching anything
-          git pull --rebase origin main
-
-          # Now add the freshly trained models
+          # Add models first (they are untracked)
           if [ -d "models" ]; then
             git add -f models/
           fi
 
-          # Commit and push only if there are staged changes
-          git diff --staged --quiet || {
+          # Stash any changes
+          git stash
+
+          # Pull latest changes
+          git pull --rebase origin main
+
+          # Restore stashed models
+          git stash pop || true
+
+          # Re-add models in case stash pop created conflicts
+          if [ -d "models" ]; then
+            git add -f models/
+          fi
+
+          # Commit and push if there are changes
+          git diff --quiet && git diff --staged --quiet || {
             git commit -m "🤖 Auto-update trained models [skip ci]"
             git push origin main
           }
