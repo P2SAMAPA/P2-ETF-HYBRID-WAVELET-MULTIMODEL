@@ -1,5 +1,4 @@
 name: Cloud Model Trainer
-
 on:
   schedule:
     - cron: '0 23 * * *'
@@ -9,7 +8,6 @@ on:
     paths:
       - '**'
   workflow_dispatch:
-
 jobs:
   build-and-train:
     runs-on: ubuntu-latest
@@ -20,58 +18,42 @@ jobs:
         run: |
           rm -rf ${{ github.workspace }}/*
           rm -rf ${{ github.workspace }}/.??* 2>/dev/null || true
-
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           clean: true
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
           pip uninstall -y numpy
-          pip install "numpy <2.0"
+          pip install "numpy<2.0"
           pip install -r requirements.txt
           python -c "import numpy; print(f'VERIFIED NUMPY VERSION: {numpy.__version__}')"
-
       - name: Run Trainer
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python train_models.py
-
       - name: Commit and Push Models to GitHub
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Add models first (they are untracked)
-          if [ -d "models" ]; then
-            git add -f models/
-          fi
-          
-          # Stash any changes
-          git stash
-          
-          # Pull latest changes
+
+          # Pull latest remote changes FIRST before touching anything
           git pull --rebase origin main
-          
-          # Restore stashed models
-          git stash pop || true
-          
-          # Re-add models in case stash pop created conflicts
+
+          # Now add the freshly trained models
           if [ -d "models" ]; then
             git add -f models/
           fi
-          
-          # Commit and push if there are changes
-          git diff --quiet && git diff --staged --quiet || {
+
+          # Commit and push only if there are staged changes
+          git diff --staged --quiet || {
             git commit -m "🤖 Auto-update trained models [skip ci]"
             git push origin main
           }
