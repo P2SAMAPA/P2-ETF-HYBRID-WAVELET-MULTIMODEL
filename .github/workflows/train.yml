@@ -44,7 +44,10 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Pull latest remote changes FIRST before touching anything
+          # Discard unstaged changes to tracked files (e.g. __pycache__ .pyc files)
+          git checkout -- .
+
+          # Pull latest remote changes
           git pull --rebase origin main
 
           # Now add the freshly trained models
