@@ -22,6 +22,8 @@ seeding:
     - XME
     - GDX
     - IWM
+    - XLB
+    - XLRE
   start_date: "2008-01-01"
   end_date: "2026-03-31"
   sources:
