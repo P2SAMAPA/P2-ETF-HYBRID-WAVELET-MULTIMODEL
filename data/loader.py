@@ -24,7 +24,7 @@ def _load_seeding_config():
             'symbols': [
                 "GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV",
                 "QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU",
-                "XME", "GDX", "IWM"
+                "XME", "GDX", "IWM", "IWD", "IWO"
             ],
             'start_date': "2008-01-01",
             'end_date': "2026-03-31",
