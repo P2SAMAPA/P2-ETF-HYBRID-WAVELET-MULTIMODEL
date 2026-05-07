@@ -67,6 +67,8 @@ categories:
     - XME
     - GDX
     - IWM
+    - IWD
+    - IWO
   benchmarks:
     - SPY
     - AGG
