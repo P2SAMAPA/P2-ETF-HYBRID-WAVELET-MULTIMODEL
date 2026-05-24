@@ -29,7 +29,22 @@ seeding:
     - XLRE
     - IWD
     - IWO
-    
+    - VIX
+    - DXY
+    - T10Y2Y
+    - IG_SPREAD
+    - HY_SPREAD
+    - DGS1MO
+    - DGS3MO
+    - DGS6MO
+    - DGS6MO
+    - DGS1
+    - DGS2
+    - DGS5
+    - DGS7
+    - DGS10
+    - DGS20
+    - DGS30
     
   start_date: "2008-01-01"
   end_date: "2030-12-31"
