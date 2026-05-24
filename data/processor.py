@@ -3,7 +3,7 @@ import pandas as pd
 import pywt
 from sklearn.preprocessing import StandardScaler
 
-MACRO_COLS = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD", "DGS1", "DGS2", "DGS5", "DGS10", "DGS30"]
+MACRO_COLS = ["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD", "DGS1MO", "DGS3MO", "DGS6MO": "DGS6MO", "DGS1", "DGS2", "DGS5", "DGS7", "DGS10", "DGS20", "DGS30"]
 
 def apply_dwt_denoise(series: pd.Series, wavelet: str = "sym4", level: int = 3) -> pd.Series:
     clean = series.dropna()
