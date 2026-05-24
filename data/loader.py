@@ -47,9 +47,9 @@ MACRO_CONFIG = {
     "IG_SPREAD":  ("BAMLC0A0CM",    None),
     "DGS1":,
     "DGS2":,
-    "DGS5"",
-    "DGS10",
-    "DGS30",
+    "DGS5":,
+    "DGS10":,
+    "DGS30":,
     "HY_SPREAD":  ("BAMLH0A0HYM2",  None),
 }
 
