@@ -27,7 +27,7 @@ def _load_seeding_config():
                 "XME", "GDX", "IWM", "IWD", "IWO"
             ],
             'start_date': "2008-01-01",
-            'end_date': "2026-03-31",
+            'end_date': "2030-03-31",
             'sources': {'price': 'yfinance', 'macro': 'fred'}
         }
 
@@ -45,11 +45,11 @@ MACRO_CONFIG = {
     "T10Y2Y":     ("T10Y2Y",        None),
     "TBILL_3M":   ("DTB3",         "^IRX"),
     "IG_SPREAD":  ("BAMLC0A0CM",    None),
-    "DGS1":,
-    "DGS2":,
-    "DGS5":,
-    "DGS10":,
-    "DGS30":,
+    "DGS1":       ("UST1YR", None),
+    "DGS2":       ("UST2YR", None),
+    "DGS5":       ("UST5YR", None),
+    "DGS10":      ("UST10YR", None),
+    "DGS30":      ("UST30YR", None),
     "HY_SPREAD":  ("BAMLH0A0HYM2",  None),
 }
 
