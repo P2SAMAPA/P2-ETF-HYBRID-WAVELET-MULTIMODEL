@@ -45,11 +45,16 @@ MACRO_CONFIG = {
     "T10Y2Y":     ("T10Y2Y",        None),
     "TBILL_3M":   ("DTB3",         "^IRX"),
     "IG_SPREAD":  ("BAMLC0A0CM",    None),
-    "DGS1":       ("UST1YR", None),
-    "DGS2":       ("UST2YR", None),
-    "DGS5":       ("UST5YR", None),
-    "DGS10":      ("UST10YR", None),
-    "DGS30":      ("UST30YR", None),
+     "DGS1MO":    "DGS1MO",   # 1-month
+    "DGS3MO":     "DGS3MO",   # 3-month
+    "DGS6MO":     "DGS6MO",   # 6-month
+    "DGS1":       "DGS1",     # 1-year
+    "DGS2":       "DGS2",     # 2-year
+    "DGS5":       "DGS5",     # 5-year
+    "DGS7":       "DGS7",     # 7-year
+    "DGS10":      "DGS10",    # 10-year
+    "DGS20":      "DGS20",    # 20-year
+    "DGS30":      "DGS30",    # 30-year
     "HY_SPREAD":  ("BAMLH0A0HYM2",  None),
 }
 
