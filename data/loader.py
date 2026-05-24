@@ -45,7 +45,7 @@ MACRO_CONFIG = {
     "T10Y2Y":     ("T10Y2Y",        None),
     "TBILL_3M":   ("DTB3",         "^IRX"),
     "IG_SPREAD":  ("BAMLC0A0CM",    None),
-     "DGS1MO":    "DGS1MO",   # 1-month
+    "DGS1MO":     "DGS1MO",   # 1-month
     "DGS3MO":     "DGS3MO",   # 3-month
     "DGS6MO":     "DGS6MO",   # 6-month
     "DGS1":       "DGS1",     # 1-year
