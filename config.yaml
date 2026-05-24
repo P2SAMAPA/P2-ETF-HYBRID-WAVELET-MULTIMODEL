@@ -29,7 +29,7 @@ seeding:
     - XLRE
     - IWD
     - IWO
-  macro_config:
+  MACRO_CONFIG:
     VIX: ["VIXCLS", "^VIX"]
     DXY: ["DTWEXBGS", "DXY"]
     T10Y2Y: ["T10Y2Y", null]
