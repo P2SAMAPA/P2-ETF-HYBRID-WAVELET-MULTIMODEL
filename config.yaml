@@ -53,6 +53,150 @@ seeding:
     macro: "fred"
   update_frequency: "daily"
 
+  # ── Average Daily Volume ───────────────────────────────────────────────────
+  # Fetched via yfinance (Ticker.history volume column).
+  # Column naming convention: <SYMBOL>_ADV_<window>D
+  # e.g. SPY_ADV_20D = 20-day rolling average daily volume for SPY
+  # All three windows are stored; engines can choose the lookback they need.
+  #   20D  (~1 month)  — short-term liquidity / market-impact estimation
+  #   63D  (~3 months) — medium-term ADV for position sizing
+  #   252D (~1 year)   — long-run ADV baseline for Kyle-lambda / Almgren-Chriss
+  volume:
+    enabled: true
+    source: "yfinance"                # volume is in yfinance daily OHLCV already
+    rolling_windows: [20, 63, 252]    # days for rolling ADV calculation
+    column_prefix: "ADV"              # columns stored as <SYMBOL>_ADV_<window>D
+    # Symbols — same as seeding symbols above; volume fetched for all
+    symbols: []                       # empty = use seeding.symbols list
+    # Dollar volume: also store price * volume (USD notional traded per day)
+    store_dollar_volume: true         # columns: <SYMBOL>_DVOL_<window>D
+    # Turn-over ratio: dollar volume / AUM proxy (useful for crowding engines)
+    store_turnover: false             # requires AUM data; enable when available
+
+  # ── Options Data ──────────────────────────────────────────────────────────
+  # Fetched via yfinance options chain (Ticker.option_chain(expiry)).
+  # Options data is stored in a SEPARATE parquet: options_data.parquet
+  # (not merged into master_data.parquet — options are multi-row per symbol/date)
+  #
+  # Derived scalar signals ARE merged into master_data.parquet as daily columns.
+  # These scalar signals are what the engines consume directly.
+  options:
+    enabled: true
+    source: "yfinance"
+    # Separate storage for raw options chain
+    raw_storage:
+      enabled: true
+      filename: "options_data.parquet"    # stored alongside master_data.parquet on HF
+      fields:                             # fields extracted from each option contract
+        - strike
+        - lastPrice
+        - bid
+        - ask
+        - volume
+        - openInterest
+        - impliedVolatility
+        - inTheMoney
+        - contractType                    # call / put
+        - expiration                      # expiry date
+        - daysToExpiry                    # computed: expiry - fetch_date
+    # Expiry selection: which maturities to fetch
+    expiry_selection:
+      method: "fixed_dte"               # fetch nearest expiry to each target DTE
+      target_dte: [7, 14, 30, 60, 90]   # days to expiry targets
+      max_dte_error: 5                  # accept expiry within ±5 days of target
+    # Moneyness selection: which strikes to fetch around ATM
+    moneyness:
+      atm_only: false
+      strike_range_pct: 0.20            # fetch strikes within ±20% of spot price
+      include_otm_puts: true            # for tail-risk engines (EVT, COPULA)
+      include_otm_calls: true
+    # Derived scalar signals merged into master_data.parquet (one row per date)
+    # Column naming: <SYMBOL>_<SIGNAL>_<DTE>D
+    # e.g. SPY_IV_ATM_30D, SPY_SKEW_30D, SPY_PUT_CALL_RATIO_30D
+    derived_signals:
+      # Implied volatility surface scalars
+      iv_atm:
+        enabled: true
+        description: "ATM implied vol at target DTE — 30D, 60D, 90D"
+        target_dte: [30, 60, 90]
+        column_template: "{symbol}_IV_ATM_{dte}D"
+        # Used by: VOLATILITY-SURFACE-SVI, ROUGH-VOL, HJB-STOCHASTIC, PINN
+      iv_skew:
+        enabled: true
+        description: "25-delta risk reversal (call IV - put IV at 25-delta strikes)"
+        target_dte: [30]
+        column_template: "{symbol}_SKEW_{dte}D"
+        # Used by: VOLATILITY-SURFACE-SVI, LEVY-STABLE, T-COPULA
+      iv_term_structure:
+        enabled: true
+        description: "IV term structure slope: IV_30D minus IV_90D"
+        column_template: "{symbol}_IV_TERM_SLOPE"
+        # Used by: NELSON-SIEGEL (for vol surface), CARRY-ENGINE (vol carry)
+      iv_surface_level:
+        enabled: true
+        description: "Average IV across all available strikes and expiries"
+        column_template: "{symbol}_IV_SURFACE_LEVEL"
+      # Put-call ratio (open interest based)
+      put_call_ratio:
+        enabled: true
+        description: "Put OI / Call OI — sentiment / flow signal"
+        target_dte: [30]
+        column_template: "{symbol}_PCR_OI_{dte}D"
+        # Used by: FLOW-POSITIONING, HAWKES-ORDERBOOK (when built)
+      # Put-call ratio (volume based)
+      put_call_vol_ratio:
+        enabled: true
+        description: "Put volume / Call volume — intraday sentiment"
+        target_dte: [30]
+        column_template: "{symbol}_PCR_VOL_{dte}D"
+      # Options-implied expected move (±1 stdev from straddle price)
+      implied_move:
+        enabled: true
+        description: "ATM straddle price / spot — market-implied expected move"
+        target_dte: [7, 30]
+        column_template: "{symbol}_IMPLIED_MOVE_{dte}D"
+        # Used by: EVT-TAILRISK, SADDLE-POINT, COPULA engines
+      # Volatility risk premium proxy (IV - realised vol)
+      vol_risk_premium:
+        enabled: true
+        description: "IV_ATM_30D minus 21D realised vol — options risk premium signal"
+        column_template: "{symbol}_VRP_30D"
+        # Used by: CARRY-ENGINE (vol carry component), ROUGH-VOL
+      # Max pain strike
+      max_pain:
+        enabled: false                  # computationally expensive; disable by default
+        description: "Strike price where total option losses are minimised for writers"
+        column_template: "{symbol}_MAX_PAIN_{dte}D"
+      # Gamma exposure (GEX) proxy
+      gamma_exposure:
+        enabled: true
+        description: "Sum of (gamma * OI * 100 * spot) across all strikes — dealer hedging flow"
+        column_template: "{symbol}_GEX"
+        # Used by: FLOW-POSITIONING, HAWKES-ORDERBOOK
+    # Fetch schedule
+    fetch_frequency: "daily"           # fetch options chain every trading day
+    # Not all ETFs have liquid options — skip if chain is empty
+    skip_illiquid_threshold: 100       # skip if total OI across all contracts < 100
+    # Symbols with liquid options (subset of seeding symbols)
+    # Others will be attempted but skipped if illiquid
+    liquid_options_symbols:
+      - SPY    # most liquid ETF options in the world
+      - QQQ    # second most liquid
+      - IWM    # Russell 2000
+      - GLD    # gold
+      - TLT    # 20Y treasury
+      - HYG    # high yield
+      - XLK    # tech sector
+      - XLE    # energy sector
+      - XLF    # financial sector
+      - GDX    # gold miners
+      - XBI    # biotech (high IV)
+      - SLV    # silver
+      - VNQ    # REIT
+      - LQD    # investment grade
+      - XLV    # healthcare
+      - XLU    # utilities
+
 daily_update:
   symbols: []
   update_range: "last_5_trading_days"
@@ -60,6 +204,9 @@ daily_update:
     price: "yfinance"
     macro: "fred"
   retrain_models: false
+  # Volume and options are also updated daily
+  update_volume: true
+  update_options: true
 
 categories:
   fi_commodities:
