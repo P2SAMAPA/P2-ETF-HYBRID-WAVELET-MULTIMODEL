@@ -557,8 +557,14 @@ class FeatureLoader:
             # ── 7. Compute VRP (needs both IV and price history) ──────────
             if OPTIONS_ENABLED and not final_df.empty:
                 vrp_df = _compute_vol_risk_premium(final_df, LIQUID_OPT_SYMBOLS)
-                for col in vrp_df.columns:
-                    final_df[col] = vrp_df[col]
+                if not vrp_df.empty:
+                    # Use pd.concat instead of column-by-column insertion to
+                    # avoid PerformanceWarning on highly fragmented DataFrames
+                    final_df = pd.concat([final_df, vrp_df], axis=1)
+                    # Drop duplicate columns (keep latest — VRP overwrites NaN placeholders)
+                    final_df = final_df.loc[:, ~final_df.columns.duplicated(keep='last')]
+                    # Defragment memory
+                    final_df = final_df.copy()
 
             # ── 8. Upload to HuggingFace ──────────────────────────────────
             buf = io.BytesIO()
