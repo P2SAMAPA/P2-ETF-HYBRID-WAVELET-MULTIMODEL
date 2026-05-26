@@ -2,7 +2,7 @@ name: Daily Data Update
 
 on:
   schedule:
-    - cron: '00 23 * * 1-5'   # 3:00 PM EST weekdays
+    - cron: '00 23 * * 1-6'   # 3:00 PM EST weekdays
   workflow_dispatch:
 
 jobs:
