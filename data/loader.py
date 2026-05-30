@@ -617,6 +617,6 @@ def load_raw_data(force_sync: bool = False):
 
     for t in ETF_TICKERS:
         if t in df.columns:
-            df[f"{t}_Ret"] = df[t].pct_change()
+            df[f"{t}_Ret"] = df[t].ffill().pct_change(fill_method=None)
 
     return df.dropna(subset=["SPY_Ret"]), msg
