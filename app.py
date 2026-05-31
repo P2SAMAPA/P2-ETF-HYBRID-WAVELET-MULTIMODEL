@@ -4,7 +4,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from data.loader import load_raw_data
 from engine import MomentumEngine, A2CEngine, PPOEngine, DeepHybridEngine, run_bayesian_filter
-from data.processor import build_feature_matrix
+from data.processor import build_feature_matrix, get_canonical_feature_names
 
 st.set_page_config(page_title="P2 ETF WAVELET SVR MULTI MODEL", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""
@@ -66,9 +66,23 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     else:
         cat_prefix = "fi_commodities"
 
+    # Build canonical feature list once — ensures feature width matches
+    # what the models were trained on (fixes I/J/K dimension mismatch)
+    canonical_names = get_canonical_feature_names(
+        raw_df=raw_df,
+        feature_symbols=feature_symbols,
+        include_options=True,
+        include_volume=True,
+        market_proxy="SPY",
+    )
+
     for ticker in predict_assets:
         try:
-            X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker, feature_symbols=feature_symbols)
+            X, y, idx, _ = build_feature_matrix(
+                raw_df, target_col=ticker,
+                feature_symbols=feature_symbols,
+                canonical_names=canonical_names,
+            )
             m_oos       = idx.year >= start_yr
             oos_indices = np.where(m_oos)[0]
 
