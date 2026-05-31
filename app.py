@@ -6,29 +6,27 @@ from data.loader import load_raw_data
 from engine import MomentumEngine, A2CEngine, PPOEngine, DeepHybridEngine, run_bayesian_filter
 from data.processor import build_feature_matrix
 
-# --- CONFIG & THEME ---
 st.set_page_config(page_title="P2 ETF WAVELET SVR MULTI MODEL", layout="wide", initial_sidebar_state="expanded")
-
 st.markdown("""
-    <style>
-    .main { background-color: #ffffff; }
-    div[data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; }
-    [data-testid="stMetricValue"] { color: #1a73e8 !important; font-size: 24px !important; font-weight: 700 !important; }
-    [data-testid="stMetricLabel"] { font-weight: 700; text-transform: uppercase; font-size: 11px; color: #5f6368 !important; }
-    .metric-sub { font-size: 12px; color: #70757a; margin-top: -12px; font-weight: 500; }
-    .metric-sub b { color: #d93025; }
-    </style>
+<style>
+.main { background-color: #ffffff; }
+div[data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; }
+[data-testid="stMetricValue"] { color: #1a73e8 !important; font-size: 24px !important; font-weight: 700 !important; }
+[data-testid="stMetricLabel"] { font-weight: 700; text-transform: uppercase; font-size: 11px; color: #5f6368 !important; }
+.metric-sub { font-size: 12px; color: #70757a; margin-top: -12px; font-weight: 500; }
+.metric-sub b { color: #d93025; }
+</style>
 """, unsafe_allow_html=True)
 
-# Asset categories
 FI_COMMODITIES = ["TLT", "VCIT", "LQD", "HYG", "VNQ", "GLD", "SLV"]
-EQUITIES = ["QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XME", "GDX", "IWM"]
-BENCHMARKS = ["SPY", "AGG"]
+EQUITIES       = ["QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XME", "GDX", "IWM"]
+BENCHMARKS     = ["SPY", "AGG"]
+
 
 def get_next_trading_day_simple():
     import pytz
-    ny_tz = pytz.timezone('America/New_York')
-    now_ny = datetime.now(ny_tz)
+    ny_tz      = pytz.timezone('America/New_York')
+    now_ny     = datetime.now(ny_tz)
     market_open = now_ny.replace(hour=9, minute=30, second=0, microsecond=0)
     if now_ny < market_open:
         target_date = now_ny
@@ -41,7 +39,9 @@ def get_next_trading_day_simple():
             target_date = now_ny + timedelta(days=1)
     return target_date.strftime('%d %B %Y')
 
-def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_loss_pct, recovery_sigma, predict_assets, feature_symbols, _log=None):
+
+def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_loss_pct,
+                               recovery_sigma, predict_assets, feature_symbols, _log=None):
     def logger(msg):
         if _log: _log.write(msg)
 
@@ -53,47 +53,45 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
 
     for a in all_assets:
         if a in raw_df.columns and f"{a}_Ret" not in raw_df.columns:
-            raw_df[f"{a}_Ret"] = raw_df[a].pct_change()
+            raw_df[f"{a}_Ret"] = raw_df[a].ffill().pct_change(fill_method=None)
 
     t_cost_pct = float(t_costs_bps) / 10_000
-
-    all_preds = {}
+    all_preds  = {}
     logger(f"🤖 Generating signals using {model_choice}...")
 
-    # Determine category prefix for deep learning models
     if set(feature_symbols) == set(FI_COMMODITIES):
         cat_prefix = "fi_commodities"
     elif set(feature_symbols) == set(EQUITIES):
         cat_prefix = "equities"
     else:
-        cat_prefix = "fi_commodities"   # fallback
+        cat_prefix = "fi_commodities"
 
     for ticker in predict_assets:
         try:
             X, y, idx, _ = build_feature_matrix(raw_df, target_col=ticker, feature_symbols=feature_symbols)
-            m_oos = idx.year >= start_yr
+            m_oos       = idx.year >= start_yr
             oos_indices = np.where(m_oos)[0]
 
-            # --- CLOUD MODELS (I, J, K) ---
             if any(opt in model_choice for opt in ["Option I", "Option J", "Option K"]):
-                mode_key = "Option I" if "Option I" in model_choice else ("Option J" if "Option J" in model_choice else "Option K")
-                eng = DeepHybridEngine(mode=mode_key)
+                mode_key = ("Option I" if "Option I" in model_choice
+                            else ("Option J" if "Option J" in model_choice else "Option K"))
+                eng   = DeepHybridEngine(mode=mode_key)
                 fname = {
                     "Option I": f"{cat_prefix}_opt_i_cnn.h5",
                     "Option J": f"{cat_prefix}_opt_j_cnn_lstm.h5",
-                    "Option K": f"{cat_prefix}_opt_k_hybrid.h5"
+                    "Option K": f"{cat_prefix}_opt_k_hybrid.h5",
                 }[mode_key]
                 eng.load(f"models/{fname}")
 
                 X_3d_list = []
                 for i in oos_indices:
                     start_idx = max(0, i - 19)
-                    window = X[start_idx : i + 1]
+                    window    = X[start_idx: i + 1]
                     if len(window) < 20:
                         window = np.vstack([np.tile(X[0], (20 - len(window), 1)), window])
                     X_3d_list.append(window)
-
                 X_3d = np.array(X_3d_list)
+
                 X_macro = None
                 if "Option K" in model_choice:
                     m_df = raw_df[["VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD"]].loc[idx[m_oos]].copy()
@@ -102,7 +100,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
 
                 preds = eng.predict_series(X_3d, X_macro=X_macro)
 
-            # --- LOCAL MODELS (A-H) ---
             else:
                 m_is = idx.year < start_yr
                 if "Option B" in model_choice:
@@ -111,14 +108,16 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
                     eng = A2CEngine()
                 else:
                     eng = MomentumEngine()
-
                 eng.train(X[m_is], y[m_is])
                 preds = eng.predict_series(X[m_oos])
 
-                if any(opt in model_choice for opt in ["Option E", "Option H"]):
-                    preds = run_bayesian_filter(preds)
+            if any(opt in model_choice for opt in ["Option E", "Option H"]):
+                preds = run_bayesian_filter(preds)
 
-            all_preds[ticker] = pd.Series(preds.values if hasattr(preds, 'values') else preds, index=idx[m_oos])
+            all_preds[ticker] = pd.Series(
+                preds.values if hasattr(preds, 'values') else preds,
+                index=idx[m_oos]
+            )
 
         except Exception as e:
             logger(f"❌ Error on {ticker}: {e}")
@@ -129,19 +128,19 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     df_p = pd.DataFrame(all_preds).fillna(0)
     if df_p.empty: return None
 
-    common_idx = df_p.index
-    equity, current_asset = 100.0, "CASH"
-    peak_equity = 100.0
+    common_idx   = df_p.index
+    equity       = 100.0
+    current_asset = "CASH"
+    peak_equity  = 100.0
     is_stopped_out = False
     rets, hist, confs = [], [], []
 
     for i, d in enumerate(common_idx):
-        dp = df_p.loc[d]
-        std_val = dp.std()
-        z_score = (dp.max() - dp.mean()) / std_val if std_val > 1e-6 else 0.0
-
+        dp       = df_p.loc[d]
+        std_val  = dp.std()
+        z_score  = (dp.max() - dp.mean()) / std_val if std_val > 1e-6 else 0.0
         best_ticker = dp.idxmax() if dp.max() > 0 else "CASH"
-        final_sig = best_ticker
+        final_sig   = best_ticker
 
         if is_stopped_out:
             if z_score > recovery_sigma:
@@ -152,65 +151,70 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         if current_asset != "CASH":
             if equity > peak_equity: peak_equity = equity
             if equity < (peak_equity * (1 - stop_loss_pct)):
-                final_sig = "CASH"
+                final_sig      = "CASH"
                 is_stopped_out = True
 
         if final_sig != current_asset:
-            equity *= (1 - t_cost_pct)
+            equity       *= (1 - t_cost_pct)
             current_asset = final_sig
-            peak_equity = equity
+            peak_equity   = equity
 
         if current_asset == "CASH":
-            day_r = (raw_df.loc[d, "TBILL_3M"]/100)/252 if "TBILL_3M" in raw_df.columns else 0.0
+            day_r = (raw_df.loc[d, "TBILL_3M"] / 100) / 252 if "TBILL_3M" in raw_df.columns else 0.0
         else:
             day_r = raw_df.loc[d, f"{current_asset}_Ret"]
-
         equity *= (1 + day_r)
         rets.append(day_r)
         hist.append(current_asset)
         confs.append(z_score)
 
-    res = pd.DataFrame(index=common_idx)
+    res              = pd.DataFrame(index=common_idx)
     res["Strategy_Ret"] = rets
-    res["Equity"] = (pd.Series(rets) + 1).cumprod().values * 100
-    res["Drawdown"] = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
+    res["Equity"]    = (pd.Series(rets) + 1).cumprod().values * 100
+    res["Drawdown"]  = (res["Equity"] - res["Equity"].cummax()) / res["Equity"].cummax()
 
     for comp in comparison_assets:
         if comp in raw_df.columns:
             res[comp] = (raw_df.loc[common_idx, comp] / raw_df.loc[common_idx, comp].iloc[0]) * 100
 
     audit_df = pd.DataFrame({"Allocation": hist, "Return": rets, "Z-Score": confs}, index=common_idx)
-
     return {
-        "df": res.ffill(),
-        "audit": audit_df,
+        "df":     res.ffill(),
+        "audit":  audit_df,
         "target": str(hist[-1]),
-        "conf": float(confs[-1]),
-        "date": common_idx[-1].strftime('%Y-%m-%d')
+        "conf":   float(confs[-1]),
+        "date":   common_idx[-1].strftime('%Y-%m-%d'),
     }
+
+
+def style_returns(val):
+    color = '#d93025' if val < 0 else '#188038'
+    return f'color: {color}; font-weight: bold'
+
 
 def display_backtest_results(out, sl_input, rec_sigma, opt, category_name, assets_list):
     df = out["df"]
     st.title("P2 Wavelet Multi-Model")
     st.subheader(f"{category_name} Universe")
     st.caption(f"Assets: {', '.join(assets_list)}")
-
-    st.markdown(f"""<div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px; border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
-        <p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">Prediction: {get_next_trading_day_simple()}</p>
-        <h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">{out.get('target', 'CASH')}</h1>
-        <p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">Z-Score: {float(out.get('conf', 0)):.2f}σ</p>
-    </div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="background-color: #f1f8e9; padding: 25px; border-radius: 15px;
+border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
+<p style="margin:0; color: #2e7d32; font-size: 14px; font-weight: 700; text-transform: uppercase;">
+  Prediction: {get_next_trading_day_simple()}</p>
+<h1 style="margin:5px 0; font-size: 90px; color: #1b5e20; line-height: 1;">
+  {out.get('target', 'CASH')}</h1>
+<p style="margin:0; font-size: 20px; color: #388e3c; font-weight: 500;">
+  Z-Score: {float(out.get('conf', 0)):.2f}σ</p>
+</div>""", unsafe_allow_html=True)
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    ann_ret = (df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1
+    ann_ret   = (df["Equity"].iloc[-1] / 100) ** (252 / len(df)) - 1
     strat_std = df['Strategy_Ret'].std()
-    sharpe = (df['Strategy_Ret'].mean() / strat_std) * np.sqrt(252) if strat_std != 0 else 0
-
-    c1.metric("Annual Return", f"{ann_ret:.2%}")
-    c2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-    c3.metric("Max DD (P/T)", f"{df['Drawdown'].min():.2%}")
+    sharpe    = (df['Strategy_Ret'].mean() / strat_std) * np.sqrt(252) if strat_std != 0 else 0
+    c1.metric("Annual Return",  f"{ann_ret:.2%}")
+    c2.metric("Sharpe Ratio",   f"{sharpe:.2f}")
+    c3.metric("Max DD (P/T)",   f"{df['Drawdown'].min():.2%}")
     c4.metric("Max DD (Daily)", f"{df['Strategy_Ret'].min():.2%}")
-
     with c5:
         hit_ratio = (df["Strategy_Ret"].tail(15) > 0).mean()
         st.metric("Hit Ratio (15D)", f"{hit_ratio:.1%}")
@@ -219,14 +223,13 @@ def display_backtest_results(out, sl_input, rec_sigma, opt, category_name, asset
     audit_display = out["audit"].tail(15).copy()
     audit_display.index = audit_display.index.strftime('%Y-%m-%d')
 
-    def style_returns(val):
-        color = '#d93025' if val < 0 else '#188038'
-        return f'color: {color}; font-weight: bold'
-
+    # FIX 1: Styler.applymap deprecated → use Styler.map (Streamlit ≥ 1.25 / pandas ≥ 2.1)
+    # FIX 2: use_container_width deprecated → use width='stretch' (Streamlit ≥ 1.45)
     st.dataframe(
-        audit_display.style.format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'})
-        .applymap(style_returns, subset=['Return']),
-        use_container_width=True
+        audit_display.style
+            .format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'})
+            .map(style_returns, subset=['Return']),   # FIX 1: applymap → map
+        width='stretch'                                # FIX 2: use_container_width → width
     )
 
     methodologies = {
@@ -240,18 +243,17 @@ def display_backtest_results(out, sl_input, rec_sigma, opt, category_name, asset
         "Option H": "Bayesian-Denoised RBF-SVR: Passes aggressive RBF-SVR outputs through a secondary Bayesian confidence filter to scale position sizes based on statistical conviction.",
         "Option I": "CNN-LSTM Deep Learning: A cloud-trained (2008-2026) hybrid architecture using Convolutions for spatial pattern detection and LSTMs for long-term temporal dependencies.",
         "Option J": "Attention-Augmented CNN-LSTM: Integrates a 'Soft-Attention' layer that allows the model to selectively weigh historical crash events more heavily than recent noise during prediction.",
-        "Option K": "Parallel Dual-Stream Deep Fusion: The most advanced engine; it fuses a dedicated Price-Stream and a Macro-Stream (VIX/DXY) into a final decision dense layer."
+        "Option K": "Parallel Dual-Stream Deep Fusion: The most advanced engine; it fuses a dedicated Price-Stream and a Macro-Stream (VIX/DXY) into a final decision dense layer.",
     }
-
     method_key = opt.split("-")[0].strip() if "-" in opt else opt.split(":")[0].strip()
     if ":" in method_key: method_key = method_key.split(":")[0].strip()
-
     st.divider()
     st.markdown(f"### Methodology: {opt}")
     st.write(methodologies.get(method_key, "Wavelet-based multi-resolution analysis."))
     st.info(f"⚠️ **Risk Policy:** Trailing Stop Loss at {sl_input*100:.1f}%. Recovery requires Z-Score > {rec_sigma}.")
 
-# --- SIDEBAR & UI RENDER ---
+
+# --- SIDEBAR & UI ---
 with st.sidebar:
     st.header("Terminal Config")
     st.info("💡 Options I, J, K are cloud-trained (2008-2026). Options A-H retrain locally.")
@@ -266,25 +268,25 @@ with st.sidebar:
         st.session_state['raw_df'], _ = load_raw_data(force_sync=False)
 
     s_yr = st.slider("Backtest Start Year", 2010, 2024, 2015)
-    opt = st.radio("Intelligence Engine", [
+    opt  = st.radio("Intelligence Engine", [
         "Option A- Wavelet-SVR", "Option B-Wavelet-SVR-PPO", "Option C: Wavelet-A2C",
         "Option D: Wavelet-SVR-A2C", "Option E: Wavelet-Bayesian-Regime", "Option F: Wavelet-HMM",
         "Option G- Wavelet-SVR-HMM", "Option H: Wavelet-SVR-Bayesian", "Option I: Wavelet- CNN-LSTM",
         "Option J: Wavelet-Attention-CNN-LSTM", "Option K- Wavelet- Parallel-Dual-Stream-CNN-LSTM"
     ])
-    sl_input = st.slider("Trailing Stop Loss (%)", 8.0, 20.0, 10.0, 0.5) / 100
+    sl_input  = st.slider("Trailing Stop Loss (%)", 8.0, 20.0, 10.0, 0.5) / 100
     rec_sigma = st.slider("Recovery Threshold (Sigma)", 0.75, 2.0, 0.80, 0.05)
-    costs = st.number_input("T-Costs (bps)", 0, 50, 10)
+    costs     = st.number_input("T-Costs (bps)", 0, 50, 10)
 
 raw_df = st.session_state.get('raw_df')
-
 if raw_df is not None:
     tab1, tab2 = st.tabs(["🏦 FI / Commodities", "📈 Equities"])
 
     with tab1:
         with st.status("🔍 Engine Heartbeat (FI/Commodities)", expanded=False) as status:
             out = run_professional_backtest(
-                raw_df, s_yr, opt, costs, sl_input, rec_sigma, FI_COMMODITIES, FI_COMMODITIES, _log=status
+                raw_df, s_yr, opt, costs, sl_input, rec_sigma,
+                FI_COMMODITIES, FI_COMMODITIES, _log=status
             )
         if out:
             display_backtest_results(out, sl_input, rec_sigma, opt, "FI / Commodities", FI_COMMODITIES)
@@ -294,7 +296,8 @@ if raw_df is not None:
     with tab2:
         with st.status("🔍 Engine Heartbeat (Equities)", expanded=False) as status:
             out = run_professional_backtest(
-                raw_df, s_yr, opt, costs, sl_input, rec_sigma, EQUITIES, EQUITIES, _log=status
+                raw_df, s_yr, opt, costs, sl_input, rec_sigma,
+                EQUITIES, EQUITIES, _log=status
             )
         if out:
             display_backtest_results(out, sl_input, rec_sigma, opt, "Equities", EQUITIES)
