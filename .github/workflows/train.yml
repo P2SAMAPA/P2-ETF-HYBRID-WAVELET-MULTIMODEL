@@ -18,15 +18,18 @@ jobs:
         run: |
           rm -rf ${{ github.workspace }}/*
           rm -rf ${{ github.workspace }}/.??* 2>/dev/null || true
+
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           clean: true
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
@@ -34,29 +37,30 @@ jobs:
           pip install "numpy<2.0"
           pip install -r requirements.txt
           python -c "import numpy; print(f'VERIFIED NUMPY VERSION: {numpy.__version__}')"
+
       - name: Run Trainer
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python train_models.py
+
       - name: Commit and Push Models to GitHub
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Discard unstaged changes to tracked files (e.g. __pycache__ .pyc files)
-          git checkout -- .
-
-          # Pull latest remote changes
+          # Pull latest remote changes — do NOT discard working tree (no checkout -- .)
+          # git checkout -- . was wiping the freshly trained .h5 files before add
           git pull --rebase origin main
-
-          # Now add the freshly trained models
+          # Stage only the models directory
           if [ -d "models" ]; then
             git add -f models/
+            echo "Staged model files:"
+            git diff --staged --name-only
           fi
-
           # Commit and push only if there are staged changes
-          git diff --staged --quiet || {
+          if git diff --staged --quiet; then
+            echo "No model changes to commit."
+          else
             git commit -m "🤖 Auto-update trained models [skip ci]"
             git push origin main
-          }
+          fi
