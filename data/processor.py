@@ -7,10 +7,14 @@ from sklearn.preprocessing import StandardScaler
 # MACRO COLUMNS
 # ---------------------------------------------------------------------------
 MACRO_COLS_CORE = [
-    "VIX", "DXY", "T10Y2Y", "IG_SPREAD", "HY_SPREAD",
+    "VIX", "DXY", "T10Y2Y",
+    # NOTE: IG_SPREAD and HY_SPREAD only start ~2022 in master data (n=784).
+    # Keeping them in CORE would cut training rows from ~4750 to ~743.
+    # Moved to EXTENDED (optional/filled-0) so full 2008 history is preserved.
 ]
 
 MACRO_COLS_EXTENDED = [
+    "IG_SPREAD", "HY_SPREAD",    # ~2022 onwards only — treated as optional
     "DGS1MO", "DGS3MO", "DGS6MO",
     "DGS1", "DGS2", "DGS5", "DGS7", "DGS10", "DGS20", "DGS30",
 ]
