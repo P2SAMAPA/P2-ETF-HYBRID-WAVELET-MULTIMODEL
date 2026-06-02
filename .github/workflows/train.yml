@@ -48,15 +48,23 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # Pull latest remote changes — do NOT discard working tree (no checkout -- .)
-          # git checkout -- . was wiping the freshly trained .h5 files before add
-          git pull --rebase origin main
-          # Stage only the models directory
+          # Stage trained models FIRST — before pull/rebase
+          # (git pull --rebase fails if there are unstaged changes)
           if [ -d "models" ]; then
             git add -f models/
-            echo "Staged model files:"
-            git diff --staged --name-only
           fi
+          # Stash if anything else is unstaged (e.g. __pycache__)
+          git stash --include-untracked --quiet || true
+          # Pull latest
+          git pull --rebase origin main
+          # Restore stash
+          git stash pop --quiet || true
+          # Re-stage models after rebase
+          if [ -d "models" ]; then
+            git add -f models/
+          fi
+          echo "Staged files:"
+          git diff --staged --name-only
           # Commit and push only if there are staged changes
           if git diff --staged --quiet; then
             echo "No model changes to commit."
