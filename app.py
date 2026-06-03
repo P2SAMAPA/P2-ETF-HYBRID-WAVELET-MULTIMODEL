@@ -19,7 +19,7 @@ div[data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0
 """, unsafe_allow_html=True)
 
 FI_COMMODITIES = ["TLT", "VCIT", "LQD", "HYG", "VNQ", "GLD", "SLV"]
-EQUITIES       = ["QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XME", "GDX", "IWM"]
+EQUITIES       = ["QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XME", "GDX", "IWM", "IWD", "IWO"]
 BENCHMARKS     = ["SPY", "AGG"]
 
 
@@ -59,12 +59,13 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     all_preds  = {}
     logger(f"🤖 Generating signals using {model_choice}...")
 
-    if set(feature_symbols) == set(FI_COMMODITIES):
+    # Use subset matching — robust if universe lists differ slightly
+    fi_overlap  = len(set(feature_symbols) & set(FI_COMMODITIES))
+    eq_overlap  = len(set(feature_symbols) & set(EQUITIES))
+    if fi_overlap >= eq_overlap:
         cat_prefix = "fi_commodities"
-    elif set(feature_symbols) == set(EQUITIES):
-        cat_prefix = "equities"
     else:
-        cat_prefix = "fi_commodities"
+        cat_prefix = "equities"
 
     # Build canonical feature list once — ensures feature width matches
     # what the models were trained on (fixes I/J/K dimension mismatch)
