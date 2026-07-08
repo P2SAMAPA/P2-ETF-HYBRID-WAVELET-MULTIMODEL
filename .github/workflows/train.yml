@@ -1,7 +1,7 @@
 name: Cloud Model Trainer
 on:
   schedule:
-    - cron: '30 22 * * *'
+    - cron: '50 22 * * *'
   push:
     branches:
       - main
