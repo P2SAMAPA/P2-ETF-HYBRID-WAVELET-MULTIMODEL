@@ -21,12 +21,12 @@ def _load_seeding_config():
     except Exception:
         return {
             'symbols': [
-                "GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV",
+                "GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV", "IWF", "XSD", "XLB", "XBI",
                 "QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "SMH", "SOXX",
                 "XME", "GDX", "IWM", "IWD", "IWO"
             ],
             'start_date': "2008-01-01",
-            'end_date': "2030-03-31",
+            'end_date': "2035-03-31",
             'sources': {'price': 'yfinance', 'macro': 'fred'},
             'volume': {
                 'enabled': True,
