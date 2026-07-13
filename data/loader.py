@@ -22,7 +22,7 @@ def _load_seeding_config():
         return {
             'symbols': [
                 "GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV",
-                "QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU",
+                "QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "SMH", "SOXX",
                 "XME", "GDX", "IWM", "IWD", "IWO"
             ],
             'start_date': "2008-01-01",
