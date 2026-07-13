@@ -24,6 +24,8 @@ seeding:
     - IWM
     - IWF
     - XSD
+    - SMH
+    - SOXX
     - XBI
     - XLB
     - XLRE
