@@ -21,7 +21,7 @@ def _load_seeding_config():
     except Exception:
         return {
             'symbols': [
-                "GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV", "IWF", "XSD", "XLB", "XBI",
+                "GLD", "SPY", "AGG", "TLT", "VCIT", "LQD", "HYG", "VNQ", "SLV", "IWF", "XSD", "XLB", "XBI", "URA",
                 "QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "SMH", "SOXX",
                 "XME", "GDX", "IWM", "IWD", "IWO"
             ],
