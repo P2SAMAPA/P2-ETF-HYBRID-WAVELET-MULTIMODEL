@@ -50,7 +50,7 @@ seeding:
     DGS30: ["DGS30", null]
     HY_SPREAD: ["BAMLH0A0HYM2", null]
   start_date: "2008-01-01"
-  end_date: "2030-12-31"
+  end_date: "2036-12-31"
   sources:
     price: "yfinance"
     macro: "fred"
