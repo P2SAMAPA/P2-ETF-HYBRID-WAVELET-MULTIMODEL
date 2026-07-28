@@ -19,7 +19,7 @@ div[data-testid="stMetric"] { background-color: #f8f9fa; border: 1px solid #e0e0
 """, unsafe_allow_html=True)
 
 FI_COMMODITIES = ["TLT", "VCIT", "LQD", "HYG", "VNQ", "GLD", "SLV"]
-EQUITIES       = ["QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XME", "GDX", "IWM", "IWD", "IWO"]
+EQUITIES       = ["QQQ", "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XME", "GDX", "IWM", "IWD", "SOXX", "SMH", "URA", "XSD", "IWF", "IWO"]
 BENCHMARKS     = ["SPY", "AGG"]
 
 
