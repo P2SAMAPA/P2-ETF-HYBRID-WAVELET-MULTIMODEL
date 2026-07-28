@@ -67,7 +67,14 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     else:
         cat_prefix = "equities"
 
-    # DYNAMIC FEATURE DETECTION - Use whatever features the models were trained with
+    # HARD-CODED: Feature counts matching what the models were trained with
+    if cat_prefix == "fi_commodities":
+        EXPECTED_FEATURES = 46
+    else:  # equities
+        EXPECTED_FEATURES = 53
+    
+    logger(f"📊 Using {EXPECTED_FEATURES} features for {cat_prefix} category")
+
     # Build canonical feature list
     canonical_names = get_canonical_feature_names(
         raw_df=raw_df,
@@ -76,10 +83,6 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         include_volume=True,
         market_proxy="SPY",
     )
-    
-    # Use the actual feature count from canonical_names
-    EXPECTED_FEATURES = len(canonical_names)
-    logger(f"📊 Using {EXPECTED_FEATURES} features for {cat_prefix} category")
 
     for ticker in predict_assets:
         try:
