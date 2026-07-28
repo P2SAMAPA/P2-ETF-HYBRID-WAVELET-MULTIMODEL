@@ -67,8 +67,10 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
     else:
         cat_prefix = "equities"
 
-    # Build canonical feature list once — ensures feature width matches
-    # what the models were trained on (fixes I/J/K dimension mismatch)
+    # UPDATED: Model expects 60 features (matches current data)
+    EXPECTED_FEATURES = 60
+    
+    # Build canonical feature list
     canonical_names = get_canonical_feature_names(
         raw_df=raw_df,
         feature_symbols=feature_symbols,
@@ -76,6 +78,16 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
         include_volume=True,
         market_proxy="SPY",
     )
+    
+    # Ensure we have exactly 60 features
+    if len(canonical_names) != EXPECTED_FEATURES:
+        logger(f"⚠️ Adjusting features from {len(canonical_names)} to {EXPECTED_FEATURES}")
+        if len(canonical_names) > EXPECTED_FEATURES:
+            canonical_names = canonical_names[:EXPECTED_FEATURES]
+        else:
+            # Pad with placeholder names if fewer features
+            pad_count = EXPECTED_FEATURES - len(canonical_names)
+            canonical_names = canonical_names + [f"PAD_{i}" for i in range(pad_count)]
 
     for ticker in predict_assets:
         try:
@@ -104,6 +116,13 @@ def run_professional_backtest(raw_df, start_yr, model_choice, t_costs_bps, stop_
                     window    = X[start_idx: i + 1]
                     if len(window) < 20:
                         window = np.vstack([np.tile(X[0], (20 - len(window), 1)), window])
+                    # Ensure window has exactly EXPECTED_FEATURES columns
+                    if window.shape[1] != EXPECTED_FEATURES:
+                        if window.shape[1] > EXPECTED_FEATURES:
+                            window = window[:, :EXPECTED_FEATURES]
+                        else:
+                            pad_width = EXPECTED_FEATURES - window.shape[1]
+                            window = np.pad(window, ((0, 0), (0, pad_width)), mode='constant')
                     X_3d_list.append(window)
                 X_3d = np.array(X_3d_list)
 
@@ -238,13 +257,11 @@ border: 2px solid #a5d6a7; text-align: center; margin-bottom: 25px;">
     audit_display = out["audit"].tail(15).copy()
     audit_display.index = audit_display.index.strftime('%Y-%m-%d')
 
-    # FIX 1: Styler.applymap deprecated → use Styler.map (Streamlit ≥ 1.25 / pandas ≥ 2.1)
-    # FIX 2: use_container_width deprecated → use width='stretch' (Streamlit ≥ 1.45)
     st.dataframe(
         audit_display.style
             .format({'Return': '{:.2%}', 'Z-Score': '{:.2f}'})
-            .map(style_returns, subset=['Return']),   # FIX 1: applymap → map
-        width='stretch'                                # FIX 2: use_container_width → width
+            .map(style_returns, subset=['Return']),
+        width='stretch'
     )
 
     methodologies = {
