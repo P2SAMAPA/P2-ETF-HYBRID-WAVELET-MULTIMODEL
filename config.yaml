@@ -31,6 +31,18 @@ seeding:
     - IBB
     - XLB
     - XLRE
+    - VUG
+    - VTV
+    - SPYG
+    - QUAL
+    - IWR
+    - VO
+    - VB
+    - VIG
+    - VEA
+    - VGT
+    - VDE
+    - XLC
     - IWD
     - IWO
   MACRO_CONFIG:
