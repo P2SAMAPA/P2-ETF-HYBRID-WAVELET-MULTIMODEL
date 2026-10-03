@@ -43,6 +43,8 @@ seeding:
     - VGT
     - VDE
     - XLC
+    - CPER
+    - COPX
     - IWD
     - IWO
   MACRO_CONFIG:
